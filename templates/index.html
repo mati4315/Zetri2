@@ -1,0 +1,604 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVX Studio Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0f1e;
+      --card: rgba(255,255,255,.055);
+      --border: rgba(255,255,255,.12);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #06b6d4;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1300px 700px at 0% -10%, rgba(6,182,212,.17), transparent 60%),
+        radial-gradient(900px 500px at 95% 0%, rgba(34,197,94,.13), transparent 65%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 30px 18px 42px; }
+    .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .logo {
+      width: 46px; height: 46px; border-radius: 13px;
+      background: linear-gradient(135deg, #06b6d4, #22c55e);
+      color: #052e16; display: flex; align-items: center; justify-content: center;
+      font-weight: 800;
+    }
+    .sub { color: var(--muted); font-size: .86rem; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .tab {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: rgba(255,255,255,.03);
+      font-weight: 700;
+      user-select: none;
+    }
+    .tab.active { border-color: rgba(6,182,212,.45); box-shadow: inset 0 0 0 1px rgba(6,182,212,.22); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      backdrop-filter: blur(10px);
+      margin-bottom: 12px;
+    }
+    .card-title { font-weight: 800; font-size: 1rem; margin-bottom: 10px; }
+    label { display: block; font-size: .8rem; color: var(--muted); margin: 8px 0 6px; }
+    input {
+      width: 100%; border: 1px solid var(--border); border-radius: 10px;
+      background: rgba(0,0,0,.26); color: var(--text);
+      padding: 11px 12px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: .85rem;
+    }
+    .row { display: flex; gap: 8px; }
+    .btn {
+      border: none; border-radius: 10px; padding: 10px 14px; font-weight: 700; cursor: pointer;
+      margin-top: 10px;
+    }
+    .btn-primary { background: linear-gradient(135deg,#06b6d4,#0891b2); color: #ecfeff; }
+    .btn-cancel { background: linear-gradient(135deg,#ef4444,#b91c1c); color: #fff; }
+    .btn-play {
+      border: 1px solid rgba(34,197,94,.35);
+      background: rgba(34,197,94,.12);
+      color: #86efac;
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      border-radius: 999px; padding: 4px 10px; font-size: .75rem; font-weight: 700;
+    }
+    .pill.ok { background: rgba(34,197,94,.15); color: #86efac; border: 1px solid rgba(34,197,94,.35); }
+    .pill.warn { background: rgba(245,158,11,.15); color: #fcd34d; border: 1px solid rgba(245,158,11,.35); }
+    .status-line { margin-top: 8px; font-size: .82rem; color: var(--muted); }
+    .bar {
+      width: 100%; height: 10px; border-radius: 999px;
+      background: rgba(255,255,255,.12); overflow: hidden; margin-top: 8px;
+    }
+    .fill {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg,#22c55e,#06b6d4);
+      transition: width .3s ease;
+    }
+    .tip {
+      margin-top: 10px; font-size: .75rem; color: var(--muted);
+      background: rgba(255,255,255,.03); padding: 8px;
+      border-radius: 8px; border: 1px dashed var(--border);
+    }
+    .drop-area {
+      margin-top: 8px; border: 1px dashed rgba(6,182,212,.45);
+      border-radius: 12px; text-align: center; padding: 16px;
+      cursor: pointer; background: rgba(6,182,212,.05);
+    }
+    .drop-area.drag-over { background: rgba(6,182,212,.14); }
+    .file-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .file-item {
+      display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(0,0,0,.2);
+      font-size: .8rem;
+    }
+    .entry-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .entry-row {
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 9px 12px; background: rgba(0,0,0,.18);
+    }
+    .entry-name {
+      flex: 1; font-size: .84rem;
+      font-family: "JetBrains Mono", monospace;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    video { width: 100%; border-radius: 12px; background: #000; }
+    @media (max-width: 840px) { .row { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo">Sx</div>
+    <div>
+      <div style="font-size:1.35rem;font-weight:800">SVX Studio Pro</div>
+      <div class="sub">Tokenización, WebCrypto y fallback inteligente</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('create')">📦 Crear .SVX</div>
+    <div class="tab" onclick="switchTab('play')">▶ Reproducir</div>
+  </div>
+
+  <div id="tab-create" class="tab-content active">
+    <div class="card">
+      <div class="card-title">Seleccionar videos</div>
+      <div class="drop-area" id="dropArea" onclick="document.getElementById('fileInput').click()">
+        <div style="font-weight:700;margin-bottom:4px">Arrastrá o hacé clic para elegir</div>
+        <div class="sub">Formatos: .mp4 .mkv .avi .webm .mov .ts</div>
+      </div>
+      <input type="file" id="fileInput" multiple accept="video/*,.mkv,.ts,.webm" style="display:none">
+      <div class="file-list" id="fileList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Opciones</div>
+      <label>Contraseña de encriptación</label>
+      <input type="password" id="createPwd" placeholder="Mínimo 4 caracteres...">
+      <div class="tip">La contraseña será requerida al reproducir.</div>
+      <button class="btn btn-primary" id="createBtn" onclick="createSvx()">⚡ Crear archivo .SVX</button>
+      <div id="createStatus" style="margin-top:12px">
+        <div class="bar"><div class="fill" id="createFill"></div></div>
+        <div class="status-line" id="createStatusText"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-play" class="tab-content">
+    <div class="card">
+      <div class="card-title">SVX Pro por Token</div>
+      <label>Token</label>
+      <input type="text" id="playToken" placeholder="svx-7788abcd">
+      <label>Contraseña</label>
+      <input type="password" id="playPwd" placeholder="Contraseña del archivo .svx">
+      <div class="row">
+        <button class="btn btn-primary" style="flex:1;margin:0" onclick="startTokenPlayback()">⚡ Iniciar Pro</button>
+        <button class="btn btn-primary" style="flex:1;margin:0" onclick="loadSvx()">🔍 Legacy</button>
+        <button class="btn btn-cancel" id="playCancelBtn" style="display:none;flex:0 0 auto;margin:0" onclick="cancelLoad()">■ Cancelar</button>
+      </div>
+      <label>URL Legacy (opcional)</label>
+      <input type="text" id="playUrl" placeholder="https://www.mediafire.com/file/.../archivo.svx/file">
+      <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
+      <div class="status-line" id="playStatusText">Listo.</div>
+      <div class="bar"><div class="fill" id="playFill"></div></div>
+      <div class="tip">El modo Pro usa WebCrypto en tu navegador y cambia automáticamente a fallback si falla.</div>
+    </div>
+
+    <div class="card">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <div class="entry-list" id="entryList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['create','play'][i] === name));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+  }
+
+  // Crear SVX
+  const dropArea = document.getElementById('dropArea');
+  const fileInput = document.getElementById('fileInput');
+  let selectedFiles = [];
+
+  ['dragenter', 'dragover'].forEach(e => dropArea.addEventListener(e, ev => {
+    ev.preventDefault();
+    dropArea.classList.add('drag-over');
+  }));
+  ['dragleave', 'drop'].forEach(e => dropArea.addEventListener(e, ev => {
+    ev.preventDefault();
+    dropArea.classList.remove('drag-over');
+  }));
+  dropArea.addEventListener('drop', ev => addFiles([...ev.dataTransfer.files]));
+  fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+
+  function fmtSize(b) {
+    if (b > 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+    return (b / 1048576).toFixed(1) + ' MB';
+  }
+
+  function addFiles(files) {
+    const vids = files.filter(f => f.type.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|ts)$/i.test(f.name));
+    selectedFiles = [...selectedFiles, ...vids];
+    renderFileList();
+  }
+
+  function renderFileList() {
+    const list = document.getElementById('fileList');
+    list.innerHTML = '';
+    selectedFiles.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<span style="flex:1">${f.name}</span><span style="color:var(--muted)">${fmtSize(f.size)}</span><button class="btn-play" onclick="removeFile(${i})">Quitar</button>`;
+      list.appendChild(row);
+    });
+  }
+
+  function removeFile(i) {
+    selectedFiles.splice(i, 1);
+    renderFileList();
+  }
+
+  function setCreateStatus(msg, pct) {
+    document.getElementById('createStatusText').textContent = msg;
+    document.getElementById('createFill').style.width = pct + '%';
+  }
+
+  async function createSvx() {
+    if (!selectedFiles.length) {
+      alert('Seleccioná al menos un video.');
+      return;
+    }
+    const pwd = document.getElementById('createPwd').value;
+    if (!pwd || pwd.length < 4) {
+      alert('La contraseña debe tener al menos 4 caracteres.');
+      return;
+    }
+
+    const btn = document.getElementById('createBtn');
+    btn.disabled = true;
+    setCreateStatus('Empaquetando y encriptando...', 30);
+
+    const form = new FormData();
+    form.append('password', pwd);
+    selectedFiles.forEach(f => form.append('files', f));
+
+    try {
+      const res = await fetch('/api/svx/create', { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Error desconocido');
+      }
+      setCreateStatus('SVX creado. Descargando...', 95);
+      const blob = await res.blob();
+      const name = selectedFiles[0].name.replace(/\.[^.]+$/, '') + '.svx';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setCreateStatus('Listo. El archivo .svx fue descargado.', 100);
+    } catch (e) {
+      setCreateStatus('Error: ' + e.message, 0);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Play
+  let playAbortController = null;
+  let loadAborted = false;
+  let activeSessionId = '';
+  let activeManifest = null;
+
+  function setPill(text, type) {
+    const p = document.getElementById('playPill');
+    if (!p) return;
+    p.textContent = text;
+    p.className = 'pill ' + type;
+  }
+
+  function setPlayStatus(msg, pct) {
+    const text = document.getElementById('playStatusText');
+    const fill = document.getElementById('playFill');
+    if (text) text.textContent = msg;
+    if (fill) fill.style.width = (pct || 0) + '%';
+  }
+
+  function supportsProCrypto() {
+    return !!(window.crypto && window.crypto.subtle && window.MediaSource);
+  }
+
+  function playerRef() {
+    return document.getElementById('player');
+  }
+
+  function playEntry(streamUrl) {
+    const player = playerRef();
+    player.src = streamUrl;
+    player.load();
+    player.play().catch(() => {});
+  }
+
+  function cancelLoad() {
+    loadAborted = true;
+    if (playAbortController) playAbortController.abort();
+    const player = playerRef();
+    player.pause();
+    player.src = "";
+    player.load();
+    setPill('Cancelado', 'warn');
+    setPlayStatus('Operación cancelada.', 0);
+    document.getElementById('playCancelBtn').style.display = 'none';
+  }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  async function deriveCtrKey(password, saltB64, iterations) {
+    const baseKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: b64ToBytes(saltB64), iterations, hash: 'SHA-256' },
+      baseKey,
+      { name: 'AES-CTR', length: 256 },
+      false,
+      ['decrypt']
+    );
+  }
+
+  function ctrCounter(ivBytes, byteOffset) {
+    const out = new Uint8Array(16);
+    out.set(ivBytes.slice(0, 8), 0);
+    let counter = BigInt(Math.floor(byteOffset / 16));
+    for (let i = 15; i >= 8; i--) {
+      out[i] = Number(counter & 0xffn);
+      counter >>= 8n;
+    }
+    return out;
+  }
+
+  async function decryptCtrChunk(key, ivB64, keystreamOffset, encryptedBytes) {
+    const iv = b64ToBytes(ivB64);
+    const counter = ctrCounter(iv, keystreamOffset);
+    const dec = await crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 64 }, key, encryptedBytes.buffer);
+    return new Uint8Array(dec);
+  }
+
+  function renderEntries(entries, onPlay) {
+    const list = document.getElementById('entryList');
+    list.innerHTML = '';
+    entries.forEach((e, i) => {
+      const row = document.createElement('div');
+      row.className = 'entry-row';
+      row.innerHTML = `<span class="entry-name">🎬 ${e.name}</span><span style="color:var(--muted);font-size:.75rem">${e.ext || ''}</span><button class="btn-play">▶ Reproducir</button>`;
+      row.querySelector('button').onclick = () => onPlay(e);
+      list.appendChild(row);
+      if (i === 0) row.classList.add('active');
+    });
+  }
+
+  function appendQueue(sb, q) {
+    if (sb.updating || !q.length) return;
+    try { sb.appendBuffer(q.shift()); } catch {}
+  }
+
+  async function playEntryWebCrypto(entry, manifest, password, signal) {
+    const player = playerRef();
+    const ms = new MediaSource();
+    player.src = URL.createObjectURL(ms);
+
+    await new Promise((resolve, reject) => {
+      ms.addEventListener('sourceopen', resolve, { once: true });
+      ms.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true });
+    });
+
+    let mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    if (!MediaSource.isTypeSupported(mime)) mime = 'video/mp4';
+    if (!MediaSource.isTypeSupported(mime)) throw new Error('Codec no soportado en modo Pro');
+
+    const sb = ms.addSourceBuffer(mime);
+    const queue = [];
+    sb.addEventListener('updateend', () => appendQueue(sb, queue));
+
+    const key = await deriveCtrKey(password, manifest.crypto.salt_b64, manifest.kdf_iterations || 200000);
+    const entrySize = Number(entry.size || 0);
+    let start = 0;
+    let started = false;
+
+    while (start < entrySize) {
+      if (signal?.aborted || loadAborted) throw new Error('Cancelado');
+      const end = Math.min(entrySize - 1, start + 1024 * 1024 - 1);
+      const res = await fetch(`${entry.chunk_url}?start=${start}&end=${end}`, { signal: signal || undefined });
+      if (!res.ok) throw new Error(`Chunk error (${res.status})`);
+
+      const ksOffset = Number(res.headers.get('X-SVX-Keystream-Offset') || 0);
+      const encrypted = new Uint8Array(await res.arrayBuffer());
+      const decrypted = await decryptCtrChunk(key, manifest.crypto.iv_b64, ksOffset, encrypted);
+
+      queue.push(decrypted.buffer);
+      appendQueue(sb, queue);
+
+      if (!started) {
+        started = true;
+        player.play().catch(() => {});
+      }
+
+      start = end + 1;
+      const pct = Math.min(95, Math.floor((start / entrySize) * 100));
+      setPlayStatus(`Descifrando en navegador... ${pct}%`, pct);
+    }
+
+    await new Promise(resolve => {
+      const done = () => {
+        if (!sb.updating && queue.length === 0) resolve();
+        else setTimeout(done, 40);
+      };
+      done();
+    });
+
+    try { ms.endOfStream(); } catch {}
+  }
+
+  async function startTokenPlayback() {
+    const token = document.getElementById('playToken').value.trim();
+    const pwd = document.getElementById('playPwd').value.trim();
+    if (!token) {
+      setPill('Error', 'warn');
+      setPlayStatus('Ingresa un token SVX.', 0);
+      return;
+    }
+
+    loadAborted = false;
+    playAbortController = new AbortController();
+    const { signal } = playAbortController;
+    document.getElementById('playCancelBtn').style.display = 'inline-flex';
+
+    try {
+      setPill('Iniciando...', 'warn');
+      setPlayStatus('Creando sesión segura...', 10);
+
+      const sres = await fetch(`/api/play/${encodeURIComponent(token)}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd, mode: 'webcrypto' }),
+        signal,
+      });
+      const session = await sres.json();
+      if (!sres.ok) throw new Error(session.detail || 'No se pudo crear sesión');
+      activeSessionId = session.session_id;
+
+      setPlayStatus('Cargando manifest...', 25);
+      const mres = await fetch(`/api/play/session/${encodeURIComponent(activeSessionId)}/manifest`, { signal });
+      const manifest = await mres.json();
+      if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest');
+      activeManifest = manifest;
+
+      const entries = manifest.entries || [];
+      if (!entries.length) throw new Error('El token no contiene videos');
+
+      renderEntries(entries, async (entry) => {
+        if (supportsProCrypto()) {
+          try {
+            await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), null);
+            setPill('SVX Pro', 'ok');
+            setPlayStatus(`Reproduciendo ${entry.name} (WebCrypto).`, 100);
+          } catch {
+            playEntry(entry.fallback_stream_url);
+            setPill('Fallback', 'warn');
+            setPlayStatus(`Fallback activado para ${entry.name}.`, 100);
+          }
+        } else {
+          playEntry(entry.fallback_stream_url);
+        }
+      });
+
+      if (supportsProCrypto()) {
+        setPill('SVX Pro', 'ok');
+        setPlayStatus('WebCrypto activo. Arrancando video...', 45);
+        await playEntryWebCrypto(entries[0], manifest, pwd, signal);
+      } else {
+        setPill('Fallback', 'warn');
+        setPlayStatus('Navegador sin WebCrypto/MSE. Usando fallback...', 45);
+        playEntry(entries[0].fallback_stream_url);
+      }
+
+      setPlayStatus('Reproducción iniciada.', 100);
+    } catch (e) {
+      if (!loadAborted) {
+        setPill('Error', 'warn');
+        setPlayStatus('Error: ' + e.message, 0);
+      }
+    } finally {
+      document.getElementById('playCancelBtn').style.display = 'none';
+    }
+  }
+
+  async function loadSvx() {
+    const url = document.getElementById('playUrl').value.trim();
+    const pwd = document.getElementById('playPwd').value.trim();
+    if (!url) {
+      setPill('Error', 'warn');
+      setPlayStatus('Ingresa URL para modo legacy.', 0);
+      return;
+    }
+
+    loadAborted = false;
+    playAbortController = new AbortController();
+    const { signal } = playAbortController;
+    document.getElementById('playCancelBtn').style.display = 'inline-flex';
+
+    setPill('Legacy', 'warn');
+    setPlayStatus('Conectando con archivo .svx...', 10);
+
+    let resolvedUrl = url;
+    let entries = null;
+
+    if (url.includes('mediafire.com')) {
+      try {
+        const q = new URLSearchParams({ url, password: pwd });
+        const res = await fetch('/api/extract?' + q.toString());
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al extraer URL');
+
+        if (data.stream_type === 'archive_list' && data.archive_files) {
+          entries = data.archive_files.map(e => ({ name: e.name || e.filename, ext: e.ext, stream_url: e.stream_url }));
+        } else {
+          resolvedUrl = data.url || url;
+        }
+      } catch (e) {
+        setPill('Error', 'warn');
+        setPlayStatus('Error: ' + e.message, 0);
+        document.getElementById('playCancelBtn').style.display = 'none';
+        return;
+      }
+    }
+
+    if (!entries) {
+      try {
+        setPlayStatus('Leyendo índice encriptado...', 40);
+        const q = new URLSearchParams({ path: resolvedUrl, password: pwd });
+        const res = await fetch('/api/svx/inspect?' + q.toString(), { signal });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al leer .svx');
+        entries = data.entries || [];
+      } catch (e) {
+        if (!loadAborted) {
+          setPill('Error', 'warn');
+          setPlayStatus('Error: ' + e.message, 0);
+        }
+        document.getElementById('playCancelBtn').style.display = 'none';
+        return;
+      }
+    }
+
+    if (!entries.length) {
+      setPill('Error', 'warn');
+      setPlayStatus('El archivo .svx no contiene videos.', 0);
+      document.getElementById('playCancelBtn').style.display = 'none';
+      return;
+    }
+
+    renderEntries(entries, (entry) => playEntry(entry.stream_url));
+    playEntry(entries[0].stream_url);
+    setPill('Legacy listo', 'ok');
+    setPlayStatus('Reproduciendo desde modo legacy.', 100);
+    document.getElementById('playCancelBtn').style.display = 'none';
+  }
+</script>
+</body>
+</html>

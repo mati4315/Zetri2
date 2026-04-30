@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAR Live - MediaFire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0a1020;
+      --card:rgba(255,255,255,.06);
+      --border:rgba(255,255,255,.15);
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+      --ok:#22c55e;
+      --warn:#f59e0b;
+      --accent:#06b6d4;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:"Plus Jakarta Sans",sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, rgba(6,182,212,.22), transparent 60%),
+        radial-gradient(900px 450px at 90% 0%, rgba(34,197,94,.16), transparent 60%),
+        var(--bg);
+      min-height:100vh;
+    }
+    .wrap{max-width:1000px;margin:0 auto;padding:28px 18px 40px}
+    .head{display:flex;gap:12px;align-items:center;margin-bottom:16px}
+    .logo{
+      width:44px;height:44px;border-radius:12px;
+      background:linear-gradient(135deg,#06b6d4,#22c55e);
+      display:flex;align-items:center;justify-content:center;
+      color:#052e16;font-weight:800
+    }
+    .title{font-size:1.2rem;font-weight:800}
+    .sub{font-size:.85rem;color:var(--muted)}
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:16px;
+      backdrop-filter: blur(8px);
+      margin-bottom:14px;
+    }
+    .grid{display:grid;grid-template-columns:1fr 220px 140px;gap:10px}
+    input{
+      width:100%;padding:11px 12px;border-radius:10px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.25);color:var(--text);
+      font-family:"JetBrains Mono",monospace;font-size:.86rem;
+    }
+    button{
+      border:none;border-radius:10px;padding:11px 14px;
+      font-weight:700;cursor:pointer
+    }
+    .btn-main{background:linear-gradient(135deg,#06b6d4,#0891b2);color:#ecfeff}
+    .status{font-size:.9rem;color:var(--muted)}
+    .bar{
+      width:100%;height:10px;border-radius:999px;
+      background:rgba(255,255,255,.12);overflow:hidden;margin-top:8px
+    }
+    .fill{
+      width:0%;height:100%;
+      background:linear-gradient(90deg,#22c55e,#06b6d4);
+      transition:width .35s ease
+    }
+    .pill{
+      display:inline-flex;align-items:center;gap:6px;
+      border-radius:999px;padding:5px 10px;font-size:.78rem;font-weight:700
+    }
+    .pill.ok{background:rgba(34,197,94,.15);color:#86efac;border:1px solid rgba(34,197,94,.35)}
+    .pill.warn{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.35)}
+    video{width:100%;border-radius:12px;background:#000}
+    .list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .item{
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      border:1px solid var(--border);border-radius:10px;padding:9px 10px;
+      background:rgba(0,0,0,.18)
+    }
+    .name{font-size:.85rem}
+    .muted{color:var(--muted);font-size:.78rem}
+    .btn-play{background:rgba(34,197,94,.15);color:#86efac;border:1px solid rgba(34,197,94,.35)}
+    @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="logo">R</div>
+      <div>
+        <div class="title">RAR Live (MediaFire)</div>
+        <div class="sub">Pega enlace + contrasena. El sistema intentara reproducir lo antes posible.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <input id="url" placeholder="https://www.mediafire.com/file/.../archivo.rar/file">
+        <input id="password" placeholder="Contrasena (opcional)">
+        <div style="display:flex;gap:5px;">
+          <button class="btn-main" id="go" style="flex:1">Iniciar</button>
+          <button class="btn-main" id="cancelBtn" style="flex:1; background:linear-gradient(135deg,#ef4444,#b91c1c); display:none;">Cancelar</button>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <span id="modePill" class="pill warn">Esperando</span>
+      </div>
+      <div class="status" id="status">Listo para analizar.</div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <div style="margin-top:12px; font-size:0.75rem; color:var(--muted); background:rgba(255,255,255,0.03); padding:8px; border-radius:8px; border:1px dashed var(--border);">
+        <strong>💡 Tip para archivos grandes:</strong> Si el análisis remoto tarda, espera a que la descarga llegue al 1-2%. El sistema detectará los videos automáticamente y habilitará el botón de reproducción "al vuelo".
+      </div>
+    </div>
+
+    <div class="card">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <div class="list" id="files"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const urlInput = $("url");
+    const pwInput = $("password");
+    const goBtn = $("go");
+    const cancelBtn = $("cancelBtn");
+    const statusEl = $("status");
+    const fillEl = $("fill");
+    const filesEl = $("files");
+    const player = $("player");
+    const modePill = $("modePill");
+
+    function setStatus(text){ statusEl.textContent = text; }
+    function setFill(pct){ fillEl.style.width = `${Math.max(0, Math.min(100, pct||0))}%`; }
+    function setMode(text, ok=false){
+      modePill.textContent = text;
+      modePill.className = "pill " + (ok ? "ok" : "warn");
+    }
+
+    async function isRarProgressive(streamUrl) {
+      try {
+        const r = await fetch(streamUrl, { method: "GET", headers: { "Range": "bytes=0-0" } });
+        return r.headers.get("X-RAR-Progressive") === "1" || r.headers.get("X-SVX-Progressive") === "1";
+      } catch { return false; }
+    }
+
+    function playUrl(u){ player.src = u; player.load(); player.play().catch(()=>{}); }
+
+    async function renderAndPlayList(data){
+      const vids = data.archive_files || [];
+      filesEl.innerHTML = "";
+      if (!vids.length) throw new Error("No se encontraron videos en el archivo");
+
+      for (const v of vids) {
+        const row = document.createElement("div");
+        row.className = "item";
+        row.innerHTML = `
+          <div>
+            <div class="name">${v.name || v.filename}</div>
+            <div class="muted">${v.ext || ""} ${v.size_str || ""}</div>
+          </div>
+          <button class="btn-play">Reproducir</button>
+        `;
+        row.querySelector("button").onclick = async () => {
+          const progressive = await isRarProgressive(v.stream_url);
+          setMode(progressive ? "RAR progresivo activo" : "Reproduccion normal", true);
+          playUrl(v.stream_url);
+          setStatus(progressive ? "Reproduciendo desde RAR parcial." : "Reproduciendo desde archivo listo.");
+        };
+        filesEl.appendChild(row);
+      }
+
+      const first = vids[0];
+      const progressive = await isRarProgressive(first.stream_url);
+      setMode(progressive ? "RAR progresivo activo" : "Reproduccion normal", true);
+      playUrl(first.stream_url);
+      setStatus(progressive ? "Reproduciendo primer video desde RAR parcial." : "Reproduciendo primer video.");
+    }
+
+    async function runExtract() {
+      const url = urlInput.value.trim();
+      const password = pwInput.value.trim();
+      if (!url) return;
+
+      goBtn.disabled = true;
+      let currentDownloadId = null;
+      cancelBtn.style.display = 'block';
+      cancelBtn.onclick = async () => {
+         if (currentDownloadId) {
+             setMode("Cancelando...", false);
+             await fetch(`/api/archive/download-cancel/${currentDownloadId}`, { method: 'DELETE' });
+             cancelBtn.style.display = 'none';
+         }
+      };
+
+      setMode("Analizando...", false);
+      setStatus("Extrayendo informacion del enlace...");
+      setFill(0);
+
+      try {
+        const q = new URLSearchParams({
+          url, quality: "video", password
+        });
+        const res = await fetch(`/api/extract?${q.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Error en /api/extract");
+
+        if (data.stream_type === "mediafire_archive_downloading") {
+          setMode("Descargando RAR...", false);
+          const dlId = data.download_id;
+          if (!dlId) throw new Error("No se recibio download_id");
+          currentDownloadId = dlId;
+
+          // Modo progresivo real: mientras descarga, reintentamos /api/extract.
+          // En cuanto backend devuelva archive_list, arrancamos reproduccion.
+          for (let i = 0; i < 240; i++) {
+            const st = await fetch(`/api/archive/download-status/${dlId}`).then(r => r.json());
+            setFill(st.pct || 0);
+            setStatus(`${st.status} - ${st.downloaded_mb || 0} / ${st.total_mb || 0} MB`);
+
+            const res2 = await fetch(`/api/extract?${q.toString()}`);
+            const data2 = await res2.json();
+            if (res2.ok && data2.stream_type === "archive_list") {
+              setMode("RAR progresivo activo", true);
+              await renderAndPlayList(data2);
+              return;
+            }
+
+            if (st.status === "error" || st.status === "cancelled") {
+              throw new Error(`Descarga ${st.status}: ${st.error || "sin detalle"}`);
+            }
+
+            await new Promise(r => setTimeout(r, 1200));
+          }
+
+          throw new Error("No se habilito reproduccion progresiva a tiempo");
+        } else if (data.stream_type === "archive_list") {
+          setFill(100);
+          await renderAndPlayList(data);
+        } else {
+          // fallback para link directo no-archive
+          const direct = data.url;
+          if (!direct) throw new Error("No se obtuvo URL de reproduccion");
+          playUrl(direct);
+          setMode("Link directo", true);
+          setFill(100);
+          setStatus("Reproduciendo stream directo.");
+        }
+      } catch (e) {
+        setMode("Error", false);
+        setStatus(`Error: ${e.message}`);
+      } finally {
+        goBtn.disabled = false;
+        cancelBtn.style.display = 'none';
+      }
+    }
+
+    goBtn.addEventListener("click", runExtract);
+    urlInput.addEventListener("keypress", (e) => { if (e.key === "Enter") runExtract(); });
+    pwInput.addEventListener("keypress", (e) => { if (e.key === "Enter") runExtract(); });
+  </script>
+</body>
+</html>

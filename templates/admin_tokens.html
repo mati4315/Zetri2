@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVX Admin Tokens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0c1222;
+      --card: rgba(255,255,255,.06);
+      --border: rgba(255,255,255,.14);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --accent: #06b6d4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1300px 700px at 0% -10%, rgba(6,182,212,.18), transparent 60%),
+        radial-gradient(1100px 600px at 100% 0%, rgba(34,197,94,.12), transparent 60%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 28px 16px 40px; }
+    .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .logo {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: linear-gradient(135deg,#06b6d4,#22c55e);
+      color: #052e16; display: flex; align-items: center; justify-content: center;
+      font-weight: 800;
+    }
+    .sub { color: var(--muted); font-size: .85rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      backdrop-filter: blur(8px);
+      margin-bottom: 12px;
+    }
+    .title { font-size: 1.02rem; font-weight: 800; margin-bottom: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-1 { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    label { display: block; margin: 2px 0 6px; color: var(--muted); font-size: .79rem; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,.28);
+      color: var(--text);
+      padding: 10px 11px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: .82rem;
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-primary { background: linear-gradient(135deg,#06b6d4,#0891b2); color: #ecfeff; }
+    .btn-secondary { background: rgba(255,255,255,.08); color: #cbd5e1; border: 1px solid var(--border); }
+    .btn-danger { background: linear-gradient(135deg,#ef4444,#b91c1c); color: #fff; }
+    .hint {
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      font-size: .75rem;
+      background: rgba(255,255,255,.02);
+    }
+    .status {
+      margin-top: 10px;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: .8rem;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      white-space: pre-wrap;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: .78rem;
+      color: #cbd5e1;
+      font-family: "JetBrains Mono", monospace;
+    }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="logo">Tk</div>
+      <div>
+        <div style="font-size:1.24rem;font-weight:800">SVX Token Admin</div>
+        <div class="sub">Registrar, consultar, actualizar fuentes y revocar tokens</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">Seguridad Admin</div>
+      <label>ADMIN_SECRET (si el servidor lo requiere)</label>
+      <input id="adminSecret" type="password" placeholder="Opcional">
+      <div class="hint">Si definiste <code>ADMIN_SECRET</code> en el backend, debes pegarlo aquí.</div>
+    </div>
+
+    <div class="card">
+      <div class="title">Crear Token</div>
+      <div class="grid">
+        <div>
+          <label>Token (opcional)</label>
+          <input id="regToken" placeholder="svx-mi-token">
+        </div>
+        <div>
+          <label>Titulo</label>
+          <input id="regTitle" placeholder="Mi Video SVX">
+        </div>
+      </div>
+      <div class="grid">
+        <div>
+          <label>Expira en horas</label>
+          <input id="regExpire" type="number" min="1" value="24">
+        </div>
+        <div></div>
+      </div>
+      <label>Sources JSON</label>
+      <textarea id="regSources">[
+  {
+    "url": "D:\\WEB MATER\\API N OFC YOUTUBE\\Zetri\\_svx_smoke_test.svx",
+    "provider": "local",
+    "priority": 1,
+    "active": true
+  }
+]</textarea>
+      <div class="row">
+        <button class="btn btn-primary" onclick="registerToken()">Registrar Token</button>
+      </div>
+      <div class="hint">Cada source debe tener: <code>url</code>, <code>priority</code>, <code>active</code>, y opcional <code>provider</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="title">Gestionar Token</div>
+      <label>Token</label>
+      <input id="manageToken" placeholder="svx-prueba-7f3c9a2d">
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-secondary" onclick="getToken()">Consultar</button>
+        <button class="btn btn-secondary" onclick="patchSources()">Actualizar Sources</button>
+        <button class="btn btn-primary" onclick="testSession()">Probar Sesion</button>
+        <button class="btn btn-danger" onclick="revokeToken()">Revocar</button>
+      </div>
+      <label style="margin-top:10px">Password para prueba de sesion</label>
+      <input id="testPassword" type="password" placeholder="cc">
+      <label style="margin-top:10px">Sources JSON (para PATCH)</label>
+      <textarea id="patchSourcesJson">[
+  {
+    "url": "D:\\WEB MATER\\API N OFC YOUTUBE\\Zetri\\_svx_smoke_test.svx",
+    "provider": "local",
+    "priority": 1,
+    "active": true
+  }
+]</textarea>
+    </div>
+
+    <div class="card">
+      <div class="title">Respuesta</div>
+      <div id="status" class="status">Listo.</div>
+      <div style="margin-top:10px"></div>
+      <pre id="result">Sin datos.</pre>
+    </div>
+  </div>
+
+  <script>
+    function headersJson() {
+      const h = { "Content-Type": "application/json" };
+      const sec = document.getElementById("adminSecret").value.trim();
+      if (sec) h["x-admin-secret"] = sec;
+      return h;
+    }
+
+    function setStatus(msg) {
+      document.getElementById("status").textContent = msg;
+    }
+
+    function setResult(obj) {
+      const out = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+      document.getElementById("result").textContent = out;
+    }
+
+    function parseJsonField(id) {
+      const raw = document.getElementById(id).value.trim();
+      try { return JSON.parse(raw); }
+      catch (e) { throw new Error("JSON invalido en " + id + ": " + e.message); }
+    }
+
+    async function apiCall(method, path, body) {
+      const opts = { method, headers: headersJson() };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data && data.detail) || ("HTTP " + res.status));
+      return data;
+    }
+
+    async function registerToken() {
+      try {
+        setStatus("Registrando token...");
+        const token = document.getElementById("regToken").value.trim();
+        const title = document.getElementById("regTitle").value.trim();
+        const exp = Number(document.getElementById("regExpire").value || "24");
+        if (!title) throw new Error("Titulo requerido");
+        const sources = parseJsonField("regSources");
+        const payload = { title, expires_in_hours: exp, sources };
+        if (token) payload.token = token;
+        const data = await apiCall("POST", "/api/tokens/register", payload);
+        setStatus("Token registrado correctamente.");
+        setResult(data);
+        if (data.token) document.getElementById("manageToken").value = data.token;
+      } catch (e) {
+        setStatus("Error al registrar.");
+        setResult(String(e.message || e));
+      }
+    }
+
+    async function getToken() {
+      try {
+        const token = document.getElementById("manageToken").value.trim();
+        if (!token) throw new Error("Token requerido");
+        setStatus("Consultando token...");
+        const data = await apiCall("GET", "/api/tokens/" + encodeURIComponent(token));
+        setStatus("Consulta OK.");
+        setResult(data);
+      } catch (e) {
+        setStatus("Error en consulta.");
+        setResult(String(e.message || e));
+      }
+    }
+
+    async function patchSources() {
+      try {
+        const token = document.getElementById("manageToken").value.trim();
+        if (!token) throw new Error("Token requerido");
+        const sources = parseJsonField("patchSourcesJson");
+        setStatus("Actualizando sources...");
+        const data = await apiCall("PATCH", "/api/tokens/" + encodeURIComponent(token) + "/sources", { sources });
+        setStatus("Sources actualizados.");
+        setResult(data);
+      } catch (e) {
+        setStatus("Error al actualizar.");
+        setResult(String(e.message || e));
+      }
+    }
+
+    async function revokeToken() {
+      try {
+        const token = document.getElementById("manageToken").value.trim();
+        if (!token) throw new Error("Token requerido");
+        if (!confirm("Seguro que quieres revocar este token?")) return;
+        setStatus("Revocando token...");
+        const data = await apiCall("POST", "/api/tokens/" + encodeURIComponent(token) + "/revoke");
+        setStatus("Token revocado.");
+        setResult(data);
+      } catch (e) {
+        setStatus("Error al revocar.");
+        setResult(String(e.message || e));
+      }
+    }
+
+    async function testSession() {
+      try {
+        const token = document.getElementById("manageToken").value.trim();
+        const password = document.getElementById("testPassword").value.trim();
+        if (!token) throw new Error("Token requerido");
+        setStatus("Probando sesion y manifest...");
+
+        const session = await apiCall("POST", "/api/play/" + encodeURIComponent(token) + "/session", { password });
+        const sid = session.session_id;
+        if (!sid) throw new Error("Sesion sin id");
+
+        const manifest = await apiCall("GET", "/api/play/session/" + encodeURIComponent(sid) + "/manifest");
+        const entries = manifest.entries || [];
+        if (!entries.length) throw new Error("Sin entradas de video");
+
+        const first = entries[0];
+        const chunkUrl = first.chunk_url + "?start=0&end=255";
+        const chunkRes = await fetch(chunkUrl);
+        const chunkOk = chunkRes.ok;
+
+        setStatus("Prueba completada.");
+        setResult({
+          ok: true,
+          token,
+          session_id: sid,
+          entry_name: first.name,
+          chunk_probe_status: chunkRes.status,
+          fallback_stream_url: first.fallback_stream_url,
+          note: chunkOk ? "Sesion valida. Si no ves video, revisa codec/contenido real del archivo." : "Sesion creada pero chunk no disponible.",
+        });
+      } catch (e) {
+        setStatus("Error en prueba de sesion.");
+        setResult(String(e.message || e));
+      }
+    }
+  </script>
+</body>
+</html>
