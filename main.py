@@ -227,6 +227,7 @@ def _http_get_with_proxy_fallback(url: str, *, timeout: int = 20, headers: dict 
                 timeout=timeout,
                 headers=headers,
                 stream=stream,
+                verify=False,
                 allow_redirects=allow_redirects,
             )
         except requests.exceptions.RequestException as e:

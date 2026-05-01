@@ -350,17 +350,17 @@
   }
 
   async function copyVlcBridgeUrl() {
-    const token = document.getElementById('playToken').value.trim();
-    const url = document.getElementById('playUrl').value.trim();
+    let url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value;
     
-    if (!token && !url) {
-      alert('Ingresa un Token o URL Legacy para generar el Puente.');
+    if (!url) {
+      alert('Ingresa una URL para generar el Puente.');
       return;
     }
-    if (token && !pwd) {
-      alert('Falta la contraseña del archivo SVX.');
-      return;
+
+    // Normalizar URL de MediaFire: quitar /file al final si existe
+    if (url.includes('mediafire.com')) {
+      url = url.replace(/\/file\/?$/, '');
     }
 
     let host = window.location.origin;
@@ -369,23 +369,28 @@
          const res = await fetch('/api/ip');
          if (res.ok) {
             const data = await res.json();
-            host = `http://${data.ip}:${window.location.port}`;
+            host = `http://${data.ip}:8098`; // Forzar puerto local si se detecta IP
          }
        } catch(e) {}
     }
 
-    let targetUrl = '';
-    if (token) {
-      targetUrl = host + '/api/svx/stream?token=' + encodeURIComponent(token) + '&password=' + encodeURIComponent(pwd) + '&file_index=0';
-    } else {
-      targetUrl = host + '/api/svx/stream?url=' + encodeURIComponent(url) + '&password=' + encodeURIComponent(pwd) + '&file_index=0';
-    }
+    // El endpoint en main.py (línea 2032) espera "path" y "password"
+    let targetUrl = host + '/api/svx/stream?path=' + encodeURIComponent(url) + '&password=' + encodeURIComponent(pwd);
     
     try {
       await navigator.clipboard.writeText(targetUrl);
-      alert('¡URL de Puente Local copiada con éxito!\n\nPuedes pegarla en VLC (Abrir Red) o en tu Smart TV para verla sin cargar el servidor.\n\nLink: ' + targetUrl);
+      setPlayStatus('¡URL Puente copiada!', 100);
+      setTimeout(() => setPlayStatus('Listo.', 0), 2000);
     } catch (err) {
-      alert('Copia manualmente este enlace para VLC:\n\n' + targetUrl);
+      console.error('Error al copiar:', err);
+      const inp = document.createElement('input');
+      document.body.appendChild(inp);
+      inp.value = targetUrl;
+      inp.select();
+      document.execCommand('copy');
+      document.body.removeChild(inp);
+      setPlayStatus('¡URL Puente copiada!', 100);
+      setTimeout(() => setPlayStatus('Listo.', 0), 2000);
     }
   }
 
