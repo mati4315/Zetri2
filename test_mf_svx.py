@@ -14,15 +14,18 @@ def get_mediafire_info(url: str) -> dict:
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
     }
-    resp = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+    # Forzar HTTP si hay problemas de SSL en el entorno local
+    resp = requests.get(url, headers=headers, timeout=20, allow_redirects=True, verify=False)
     resp.raise_for_status()
     html = resp.text
-    m = re.search(r'href="(https://download\d+\.mediafire\.com/[^"]+)"', html)
+    # Buscar link de descarga
+    m = re.search(r'href="(http[s]?://download\d+\.mediafire\.com/[^"]+)"', html)
     if not m:
-        m = re.search(r"href='(https://download\d+\.mediafire\.com/[^']+)'", html)
+        m = re.search(r"href='(http[s]?://download\d+\.mediafire\.com/[^']+)'", html)
     if not m:
         raise ValueError("No se encontró URL de descarga directa")
-    download_url = unescape(m.group(1))
+    download_url = unescape(m.group(1)).replace("https://", "http://")
+    print(f"DEBUG: download_url resolved to: {download_url}")
     return {'download_url': download_url}
 
 def test_mediafire_svx(url):

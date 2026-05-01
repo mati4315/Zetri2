@@ -165,6 +165,13 @@
       <div class="card-title">Opciones</div>
       <label>Contraseña de encriptación</label>
       <input type="password" id="createPwd" placeholder="Mínimo 4 caracteres...">
+      <label>Tamaño por parte (MB, opcional)</label>
+      <input type="number" id="createPartSizeMb" min="0" step="1" value="0" placeholder="0 = sin partir">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <input type="checkbox" id="createSvxPerPart">
+        Generar un archivo .SVX por cada parte (descarga ZIP)
+      </label>
+      <div class="tip">Si ponés 100, cada video se divide en partes reproducibles con objetivo ~100 MB (puede variar).</div>
       <div class="tip">La contraseña será requerida al reproducir.</div>
       <button class="btn btn-primary" id="createBtn" onclick="createSvx()">⚡ Crear archivo .SVX</button>
       <div id="createStatus" style="margin-top:12px">
@@ -189,6 +196,7 @@
       </div>
       <label>URL Legacy (opcional)</label>
       <input type="text" id="playUrl" placeholder="https://www.mediafire.com/file/.../archivo.svx/file">
+      <div class="tip">Playlist: pegá múltiples URLs .svx separadas por salto de línea para reproducción continua.</div>
       <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
       <div class="status-line" id="playStatusText">Listo.</div>
       <div class="bar"><div class="fill" id="playFill"></div></div>
@@ -257,6 +265,78 @@
     document.getElementById('createFill').style.width = pct + '%';
   }
 
+  function downloadSvxWithNativeForm(password, partSizeMb, svxPerPart) {
+    // Fallback robusto para navegadores que cortan fetch/xhr con status=0.
+    const dt = new DataTransfer();
+    selectedFiles.forEach(f => dt.items.add(f));
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/api/svx/create';
+    form.enctype = 'multipart/form-data';
+    form.style.display = 'none';
+
+    const pwdInput = document.createElement('input');
+    pwdInput.type = 'hidden';
+    pwdInput.name = 'password';
+    pwdInput.value = password;
+    form.appendChild(pwdInput);
+
+    const partInput = document.createElement('input');
+    partInput.type = 'hidden';
+    partInput.name = 'part_size_mb';
+    partInput.value = String(partSizeMb || 0);
+    form.appendChild(partInput);
+
+    const perPartInput = document.createElement('input');
+    perPartInput.type = 'hidden';
+    perPartInput.name = 'svx_per_part';
+    perPartInput.value = svxPerPart ? 'true' : 'false';
+    form.appendChild(perPartInput);
+
+    const filesInput = document.createElement('input');
+    filesInput.type = 'file';
+    filesInput.name = 'files';
+    filesInput.multiple = true;
+    filesInput.files = dt.files;
+    form.appendChild(filesInput);
+
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(() => form.remove(), 2000);
+  }
+
+  function postSvxWithXhr(form) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/svx/create', true);
+      xhr.responseType = 'blob';
+      xhr.timeout = 10 * 60 * 1000; // 10 minutos
+
+      xhr.onload = async () => {
+        const blob = xhr.response;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(blob);
+          return;
+        }
+        let detail = `HTTP ${xhr.status}`;
+        try {
+          if (blob && blob.size) {
+            const txt = await blob.text();
+            if (txt) detail += ` - ${txt}`;
+          }
+        } catch (_) {}
+        reject(new Error(detail));
+      };
+
+      xhr.onerror = () => reject(new Error(`Error de red del navegador (status=${xhr.status || 0})`));
+      xhr.onabort = () => reject(new Error('Solicitud cancelada por el navegador'));
+      xhr.ontimeout = () => reject(new Error('Tiempo de espera agotado al crear el SVX'));
+
+      xhr.send(form);
+    });
+  }
+
   async function createSvx() {
     if (!selectedFiles.length) {
       alert('Seleccioná al menos un video.');
@@ -267,6 +347,8 @@
       alert('La contraseña debe tener al menos 4 caracteres.');
       return;
     }
+    const partSizeMb = Math.max(0, parseInt(document.getElementById('createPartSizeMb').value || '0', 10) || 0);
+    const svxPerPart = !!document.getElementById('createSvxPerPart')?.checked;
 
     const btn = document.getElementById('createBtn');
     btn.disabled = true;
@@ -274,24 +356,28 @@
 
     const form = new FormData();
     form.append('password', pwd);
+    form.append('part_size_mb', String(partSizeMb));
+    form.append('svx_per_part', svxPerPart ? 'true' : 'false');
     selectedFiles.forEach(f => form.append('files', f));
 
     try {
-      const res = await fetch('/api/svx/create', { method: 'POST', body: form });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Error desconocido');
-      }
+      const blob = await postSvxWithXhr(form);
       setCreateStatus('SVX creado. Descargando...', 95);
-      const blob = await res.blob();
-      const name = selectedFiles[0].name.replace(/\.[^.]+$/, '') + '.svx';
+      const name = selectedFiles[0].name.replace(/\.[^.]+$/, '') + (svxPerPart && partSizeMb > 0 ? '.svx_parts.zip' : '.svx');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = name;
       a.click();
       setCreateStatus('Listo. El archivo .svx fue descargado.', 100);
     } catch (e) {
-      setCreateStatus('Error: ' + e.message, 0);
+      if ((e && String(e.message || '').includes('status=0'))) {
+        setCreateStatus('Red inestable en fetch/xhr. Intentando descarga nativa...', 70);
+        downloadSvxWithNativeForm(pwd, partSizeMb, svxPerPart);
+        setCreateStatus('Solicitud enviada con descarga nativa del navegador.', 100);
+      } else {
+        setCreateStatus('Error: ' + e.message, 0);
+      }
+      console.error('SVX create failed', e);
     } finally {
       btn.disabled = false;
     }
@@ -302,6 +388,7 @@
   let loadAborted = false;
   let activeSessionId = '';
   let activeManifest = null;
+  let playlistAuto = { enabled: false, entries: [], index: 0 };
 
   function setPill(text, type) {
     const p = document.getElementById('playPill');
@@ -332,8 +419,28 @@
     player.play().catch(() => {});
   }
 
+  function setupPlaylistAutoplay(entries, startIndex = 0) {
+    const player = playerRef();
+    playlistAuto = { enabled: true, entries: entries || [], index: Math.max(0, startIndex || 0) };
+    player.onended = () => {
+      if (!playlistAuto.enabled) return;
+      const next = playlistAuto.index + 1;
+      if (next >= playlistAuto.entries.length) {
+        playlistAuto.enabled = false;
+        setPill('Completado', 'ok');
+        setPlayStatus('Playlist finalizada.', 100);
+        return;
+      }
+      playlistAuto.index = next;
+      const entry = playlistAuto.entries[next];
+      playEntry(entry.stream_url || entry.fallback_stream_url || '');
+      setPlayStatus(`Reproduciendo parte ${next + 1}/${playlistAuto.entries.length}: ${entry.name || entry.label || 'parte'}`, 100);
+    };
+  }
+
   function cancelLoad() {
     loadAborted = true;
+    playlistAuto.enabled = false;
     if (playAbortController) playAbortController.abort();
     const player = playerRef();
     player.pause();
@@ -346,7 +453,45 @@
 
   function abortPrevious() {
     if (playAbortController) playAbortController.abort();
+    playlistAuto.enabled = false;
+    const player = playerRef();
+    player.onended = null;
     loadAborted = false;
+  }
+
+  function parsePlaylistUrls(raw) {
+    return (raw || '')
+      .split(/\r?\n|,/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  async function startLegacyPlaylist(paths, password, signal) {
+    const body = {
+      title: 'Playlist SVX',
+      mode: 'fallback',
+      password: password || '',
+      parts: paths.map((p, i) => ({ path: p, label: `Parte ${i + 1}` })),
+    };
+    const res = await fetch('/api/svx/playlist/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'No se pudo crear sesión de playlist');
+    const mres = await fetch(data.manifest_url, { signal });
+    const manifest = await mres.json();
+    if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest de playlist');
+    const entries = (manifest.entries || []).map((e, i) => ({
+      name: e.item || `parte_${i + 1}`,
+      label: e.part_label || `Parte ${i + 1}`,
+      ext: e.ext || 'mp4',
+      stream_url: e.stream_url,
+    }));
+    if (!entries.length) throw new Error('Playlist vacía');
+    return entries;
   }
 
   async function copyVlcBridgeUrl() {
@@ -358,10 +503,7 @@
       return;
     }
 
-    // Normalizar URL de MediaFire: quitar /file al final si existe
-    if (url.includes('mediafire.com')) {
-      url = url.replace(/\/file\/?$/, '');
-    }
+    setPlayStatus('Resolviendo enlace...', 50);
 
     let host = window.location.origin;
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -369,28 +511,35 @@
          const res = await fetch('/api/ip');
          if (res.ok) {
             const data = await res.json();
-            host = `http://${data.ip}:8098`; // Forzar puerto local si se detecta IP
+            host = `https://${data.ip}:8098`; // Forzar puerto local con HTTPS si se detecta IP
          }
        } catch(e) {}
     }
 
-    // El endpoint en main.py (línea 2032) espera "path" y "password"
-    let targetUrl = host + '/api/svx/stream?path=' + encodeURIComponent(url) + '&password=' + encodeURIComponent(pwd);
-    
     try {
+      // Obtenemos la URL directa o de stream procesada por el backend real
+      const reqUrl = `/api/extract?url=${encodeURIComponent(url)}&password=${encodeURIComponent(pwd)}`;
+      const reqRes = await fetch(reqUrl);
+      const data = await reqRes.json();
+      
+      if (!reqRes.ok || !data.url) {
+        throw new Error(data.detail || 'No se pudo resolver el enlace');
+      }
+
+      let targetUrl = data.url;
+      if (targetUrl.startsWith('/')) {
+        targetUrl = host + targetUrl;
+      } else if (!targetUrl.startsWith('http')) {
+        targetUrl = host + '/' + targetUrl;
+      }
+
       await navigator.clipboard.writeText(targetUrl);
       setPlayStatus('¡URL Puente copiada!', 100);
       setTimeout(() => setPlayStatus('Listo.', 0), 2000);
     } catch (err) {
       console.error('Error al copiar:', err);
-      const inp = document.createElement('input');
-      document.body.appendChild(inp);
-      inp.value = targetUrl;
-      inp.select();
-      document.execCommand('copy');
-      document.body.removeChild(inp);
-      setPlayStatus('¡URL Puente copiada!', 100);
-      setTimeout(() => setPlayStatus('Listo.', 0), 2000);
+      alert('Error: ' + err.message);
+      setPlayStatus('Error.', 0);
     }
   }
 
@@ -459,8 +608,15 @@
       ms.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true });
     });
 
+    const ext = (entry.ext || '').toLowerCase();
     let mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-    if (!MediaSource.isTypeSupported(mime)) mime = 'video/mp4';
+    if (ext === 'webm') mime = 'video/webm; codecs="vp8, vorbis"';
+    if (ext === 'mkv' || ext === 'avi' || ext === 'mov' || ext === 'ts') {
+      throw new Error(`Formato ${ext} no soportado por MSE Pro en este navegador`);
+    }
+    if (!MediaSource.isTypeSupported(mime)) {
+      mime = ext === 'webm' ? 'video/webm' : 'video/mp4';
+    }
     if (!MediaSource.isTypeSupported(mime)) throw new Error('Codec no soportado en modo Pro');
 
     const sb = ms.addSourceBuffer(mime);
@@ -471,6 +627,7 @@
     const entrySize = Number(entry.size || 0);
     let start = 0;
     let started = false;
+    let playRejected = null;
 
     while (start < entrySize) {
       if (signal?.aborted || loadAborted) throw new Error('Cancelado');
@@ -488,7 +645,11 @@
 
       if (!started) {
         started = true;
-        player.play().catch(() => {});
+        try {
+          await player.play();
+        } catch (e) {
+          playRejected = e || new Error('Autoplay bloqueado');
+        }
       }
 
       start = end + 1;
@@ -505,6 +666,8 @@
     });
 
     try { ms.endOfStream(); } catch {}
+    if (playRejected) throw new Error('No se pudo iniciar reproducción en modo Pro');
+    if (player.readyState < 2) throw new Error('Media no lista para reproducir en modo Pro');
   }
 
   async function startTokenPlayback() {
@@ -603,8 +766,23 @@
 
     let resolvedUrl = url;
     let entries = null;
+    const playlistUrls = parsePlaylistUrls(url);
 
-    if (url.includes('mediafire.com')) {
+    if (playlistUrls.length > 1) {
+      try {
+        setPlayStatus('Creando playlist continua...', 35);
+        entries = await startLegacyPlaylist(playlistUrls, pwd, signal);
+      } catch (e) {
+        if (!loadAborted) {
+          setPill('Error', 'warn');
+          setPlayStatus('Error playlist: ' + e.message, 0);
+        }
+        document.getElementById('playCancelBtn').style.display = 'none';
+        return;
+      }
+    }
+
+    if (!entries && url.includes('mediafire.com')) {
       try {
         const q = new URLSearchParams({ url, password: pwd });
         const res = await fetch('/api/extract?' + q.toString());
@@ -649,10 +827,15 @@
       return;
     }
 
-    renderEntries(entries, (entry) => playEntry(entry.stream_url));
+    renderEntries(entries, (entry) => {
+      const idx = entries.findIndex(x => x === entry);
+      if (idx >= 0) playlistAuto.index = idx;
+      playEntry(entry.stream_url);
+    });
     playEntry(entries[0].stream_url);
+    setupPlaylistAutoplay(entries, 0);
     setPill('Legacy listo', 'ok');
-    setPlayStatus('Reproduciendo desde modo legacy.', 100);
+    setPlayStatus(entries.length > 1 ? `Reproduciendo playlist (${entries.length} partes).` : 'Reproduciendo desde modo legacy.', 100);
     document.getElementById('playCancelBtn').style.display = 'none';
   }
 </script>

@@ -53,6 +53,8 @@ import requests
 import io
 
 import hashlib
+import math
+import subprocess
 
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -102,8 +104,8 @@ async def startup_event():
         local_ip = s.getsockname()[0]
         s.close()
         print("\n" + "="*50)
-        print(" 🔗 ZETRI PUENTE LOCAL ACTIVADO")
-        print(f" 📺 Para usar VLC/TV usa la IP: http://{local_ip}:8098")
+        print(" 🔗 ZETRI PUENTE LOCAL ACTIVADO (CON HTTPS)")
+        print(f" 📺 Para usar VLC/TV usa la IP: https://{local_ip}:8098")
         print("="*50 + "\n")
     except Exception:
         pass
@@ -124,6 +126,7 @@ templates = Jinja2Templates(directory="templates")
 VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.webm', '.ts', '.m2ts', '.mov', '.flv'}
 ARCHIVE_DOWNLOADS = {}
 ARCHIVE_CANCEL_FLAGS = {}
+PLAYLIST_SESSIONS = {}
 DB_FILE = Path("videos.json")
 if not DB_FILE.exists():
     with open(DB_FILE, "w") as f:
@@ -136,10 +139,14 @@ SVX_CORE_DB_FILE = Path(
 TOKEN_DEFAULT_TTL_HOURS = int(os.getenv("SVX_TOKEN_DEFAULT_TTL_HOURS", "24"))
 SESSION_TTL_MINUTES = int(os.getenv("SVX_SESSION_TTL_MINUTES", "30"))
 PLAY_CHUNK_DEFAULT_SIZE = int(os.getenv("SVX_PLAY_CHUNK_SIZE", str(1024 * 1024)))
+SVX_MAX_PART_SIZE_MB = int(os.getenv("SVX_MAX_PART_SIZE_MB", "4096"))
 INDEX_CACHE_MAX_AGE_HOURS = int(os.getenv("SVX_INDEX_CACHE_MAX_AGE_HOURS", "168"))
 ADMIN_SECRET = (os.getenv("ADMIN_SECRET", "") or "").strip()
 REQUESTS_TRUST_ENV = (os.getenv("SVX_TRUST_ENV", "0").strip().lower() not in {"0", "false", "no"})
 DB_LOCK = _threading.Lock()
+_ffmpeg_fallback_path = r"C:\Program Files\Softdeluxe\Free Download Manager\ffmpeg.exe"
+FFMPEG_BIN = os.getenv("FFMPEG_BIN", "").strip() or shutil.which("ffmpeg") or (_ffmpeg_fallback_path if Path(_ffmpeg_fallback_path).exists() else "ffmpeg")
+FFPROBE_BIN = os.getenv("FFPROBE_BIN", "").strip() or (shutil.which("ffprobe") or "ffprobe")
 
 
 def _utc_now() -> datetime:
@@ -457,6 +464,20 @@ class PlaySessionInput(BaseModel):
     password: str = ""
     preferred_source_id: int | None = None
     mode: str | None = None
+
+
+class PlaylistPartInput(BaseModel):
+    path: str = Field(min_length=1)
+    password: str | None = None
+    item: str | None = None
+    label: str | None = None
+
+
+class PlaylistSessionInput(BaseModel):
+    parts: list[PlaylistPartInput] = Field(min_items=1)
+    password: str = ""
+    title: str | None = None
+    mode: str | None = "webcrypto"
 
 
 def _require_admin(request: Request) -> None:
@@ -1962,10 +1983,99 @@ async def svx_dashboard(request: Request):
     with open(tpl_path, encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
+
+def _probe_duration_seconds(media_path: Path) -> float:
+    ffprobe_ok = bool(shutil.which(FFPROBE_BIN) or Path(FFPROBE_BIN).exists())
+    if ffprobe_ok:
+        proc = subprocess.run(
+            [
+                FFPROBE_BIN,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(media_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            try:
+                return max(0.0, float((proc.stdout or "0").strip()))
+            except Exception:
+                pass
+
+    # Fallback cuando no hay ffprobe: parsear "Duration: HH:MM:SS.xx" desde ffmpeg -i
+    ffmpeg_ok = bool(shutil.which(FFMPEG_BIN) or Path(FFMPEG_BIN).exists())
+    if not ffmpeg_ok:
+        raise RuntimeError(
+            "No se encontró ffprobe ni ffmpeg para detectar duración. Configurá FFMPEG_BIN/FFPROBE_BIN."
+        )
+    proc = subprocess.run(
+        [FFMPEG_BIN, "-hide_banner", "-i", str(media_path)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    txt = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", txt)
+    if not m:
+        raise RuntimeError("No se pudo detectar duración del video")
+    h, mm, ss = int(m.group(1)), int(m.group(2)), float(m.group(3))
+    return h * 3600 + mm * 60 + ss
+
+
+def _split_video_playable(input_path: Path, target_part_size_mb: int, out_dir: Path) -> list[Path]:
+    if not shutil.which(FFMPEG_BIN) and not Path(FFMPEG_BIN).exists():
+        raise RuntimeError(
+            "ffmpeg no encontrado. Instalá FFmpeg o configurá FFMPEG_BIN con la ruta completa."
+        )
+    size_bytes = input_path.stat().st_size
+    target_bytes = int(target_part_size_mb) * 1024 * 1024
+    if target_bytes <= 0 or size_bytes <= target_bytes:
+        return [input_path]
+
+    duration = _probe_duration_seconds(input_path)
+    if duration <= 0:
+        raise RuntimeError(f"No se pudo detectar duración de {input_path.name}")
+
+    estimated_parts = max(2, math.ceil(size_bytes / target_bytes))
+    segment_time = max(1.0, duration / estimated_parts)
+    ext = input_path.suffix or ".mp4"
+    pattern = str(out_dir / f"{input_path.stem}.part%03d{ext}")
+
+    proc = subprocess.run(
+        [
+            FFMPEG_BIN,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-i", str(input_path),
+            "-map", "0",
+            "-c", "copy",
+            "-f", "segment",
+            "-segment_time", f"{segment_time:.3f}",
+            "-reset_timestamps", "1",
+            pattern,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=7200,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "ffmpeg error").strip())
+
+    parts = sorted(p for p in out_dir.glob(f"{input_path.stem}.part*{ext}") if p.is_file() and p.stat().st_size > 0)
+    if len(parts) < 2:
+        raise RuntimeError(f"No se pudieron generar partes para {input_path.name}")
+    return parts
+
 @app.post("/api/svx/create")
 async def svx_create(
     files: list[UploadFile] = File(...),
     password: str = Form(""),
+    part_size_mb: int = Form(0),
+    svx_per_part: bool = Form(False),
 ):
     """
     Recibe uno o más archivos de video via multipart form-data, los empaqueta
@@ -1974,6 +2084,7 @@ async def svx_create(
     import tempfile, shutil
     tmp_dir = Path(tempfile.mkdtemp(prefix="svx_"))
     saved_paths = []
+    pack_input_paths = []
 
     try:
         for uf in files:
@@ -1987,37 +2098,108 @@ async def svx_create(
         if not saved_paths:
             raise HTTPException(400, "No se recibieron archivos validos")
 
+        if part_size_mb < 0:
+            raise HTTPException(400, "part_size_mb no puede ser negativo")
+        if part_size_mb > SVX_MAX_PART_SIZE_MB:
+            raise HTTPException(400, f"part_size_mb no puede ser mayor a {SVX_MAX_PART_SIZE_MB} MB")
+
+        if part_size_mb > 0:
+            for src in saved_paths:
+                split_parts = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda p=src: _split_video_playable(p, part_size_mb, tmp_dir)
+                )
+                if len(split_parts) == 1 and split_parts[0] == src:
+                    pack_input_paths.append(src)
+                else:
+                    pack_input_paths.extend(split_parts)
+        else:
+            pack_input_paths = list(saved_paths)
+
+        # Modo solicitado: un .svx independiente por cada parte (descarga en .zip)
+        if svx_per_part and part_size_mb > 0:
+            svx_paths: list[Path] = []
+            for i, part_path in enumerate(pack_input_paths, start=1):
+                out_part_name = f"{part_path.stem}.svx"
+                out_part_path = tmp_dir / out_part_name
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda p=part_path, o=out_part_path: _svx.pack([str(p)], password, str(o))
+                )
+                if not out_part_path.exists():
+                    raise HTTPException(500, f"No se pudo generar {out_part_name}")
+                svx_paths.append(out_part_path)
+
+            zip_name = saved_paths[0].stem + ".svx_parts.zip"
+            zip_path = tmp_dir / zip_name
+            playlist_name = saved_paths[0].stem + ".playlist.json"
+            playlist_payload = {
+                "version": 1,
+                "title": saved_paths[0].stem,
+                "created_at": _iso_utc(_utc_now()),
+                "parts": [
+                    {
+                        "order": i + 1,
+                        "filename": p.name,
+                        "label": f"Parte {i + 1}",
+                    }
+                    for i, p in enumerate(svx_paths)
+                ],
+            }
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for p in svx_paths:
+                    zf.write(p, arcname=p.name)
+                zf.writestr(
+                    playlist_name,
+                    json.dumps(playlist_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+
+            if not zip_path.exists():
+                raise HTTPException(500, "No se pudo generar el ZIP de partes SVX")
+
+            for uf in files:
+                await uf.close()
+
+            print(f"Returning SVX-parts zip response for {zip_name}...")
+            return FileResponse(
+                path=zip_path,
+                media_type="application/zip",
+                filename=zip_name,
+                headers={
+                    "Access-Control-Expose-Headers": "Content-Disposition",
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+                background=BackgroundTask(lambda: __import__("shutil").rmtree(tmp_dir, ignore_errors=True)),
+            )
+
         out_name = saved_paths[0].stem + ".svx"
         out_path = tmp_dir / out_name
 
-        # Generar .svx real antes de responder
+        # Modo original: un único .svx con todas las entradas
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _svx.pack([str(p) for p in saved_paths], password, str(out_path))
+            None, lambda: _svx.pack([str(p) for p in pack_input_paths], password, str(out_path))
         )
 
-        # Validar resultado
         if out_path.exists():
             print(f"SVX created successfully: {out_path} ({out_path.stat().st_size} bytes)")
         else:
             print(f"ERROR: SVX file not found at {out_path}")
             raise HTTPException(500, "Archivo .svx no generado")
 
-        async def iter_file():
-            with open(out_path, mode="rb") as f:
-                while chunk := f.read(1024*1024): # 1MB chunks
-                    yield chunk
-        
         # Manually close uploaded files
         for uf in files:
             await uf.close()
 
-        print(f"Streaming response for {out_name}...")
-        return StreamingResponse(
-            iter_file(),
+        print(f"Returning file response for {out_name}...")
+        return FileResponse(
+            path=out_path,
             media_type="application/octet-stream",
+            filename=out_name,
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(out_name)}",
-                "Access-Control-Expose-Headers": "Content-Disposition"
+                "Access-Control-Expose-Headers": "Content-Disposition",
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
             },
             background=BackgroundTask(lambda: __import__("shutil").rmtree(tmp_dir, ignore_errors=True)),
         )
@@ -2146,6 +2328,129 @@ async def svx_inspect(
             {**e, "stream_url": base_url + f"&item={quote(e['name'])}"}
             for e in index
         ]
+    })
+
+
+def _playlist_stream_url(path: str, password: str, item: str) -> str:
+    return f"/api/svx/stream?path={quote(path)}&password={quote(password)}&item={quote(item)}"
+
+
+@app.post("/api/svx/playlist/session")
+async def svx_playlist_session_create(payload: PlaylistSessionInput):
+    """
+    Crea una sesión de reproducción continua sobre múltiples archivos .svx.
+    Base para autoplay transparente entre partes.
+    """
+    if not payload.parts:
+        raise HTTPException(400, "Se requiere al menos una parte")
+
+    entries = []
+    cursor = 0
+    for idx, part in enumerate(payload.parts):
+        part_path = (part.path or "").strip()
+        if not part_path:
+            raise HTTPException(400, f"Parte #{idx+1} sin path")
+        part_pwd = part.password if part.password is not None else payload.password
+        try:
+            cache_payload = await asyncio.get_event_loop().run_in_executor(
+                None, lambda p=part_path, pw=part_pwd: _load_or_build_index_cache(p, pw)
+            )
+        except ValueError as e:
+            raise HTTPException(400, f"Parte #{idx+1}: {e}")
+        except Exception as e:
+            raise HTTPException(500, f"No se pudo leer parte #{idx+1}: {e}")
+
+        svx_entries = cache_payload.get("entries", [])
+        if not svx_entries:
+            raise HTTPException(400, f"Parte #{idx+1} vacía")
+        chosen = None
+        if part.item:
+            chosen = next((e for e in svx_entries if e.get("name") == part.item), None)
+            if not chosen:
+                raise HTTPException(404, f"Parte #{idx+1}: item no encontrado: {part.item}")
+        else:
+            chosen = svx_entries[0]
+
+        size = int(chosen.get("size", 0))
+        item_name = chosen.get("name") or f"part_{idx+1}"
+        stream_url = _playlist_stream_url(part_path, part_pwd, item_name)
+        entries.append({
+            "part_index": idx,
+            "part_label": part.label or f"Parte {idx+1}",
+            "path": part_path,
+            "item": item_name,
+            "ext": chosen.get("ext", "mp4"),
+            "size": size,
+            "global_byte_start": cursor,
+            "global_byte_end": cursor + max(0, size - 1),
+            "stream_url": stream_url,
+        })
+        cursor += size
+
+    session_id = uuid.uuid4().hex
+    expires_at = _utc_now() + timedelta(minutes=SESSION_TTL_MINUTES)
+    PLAYLIST_SESSIONS[session_id] = {
+        "id": session_id,
+        "created_at": _iso_utc(_utc_now()),
+        "expires_at": _iso_utc(expires_at),
+        "title": (payload.title or "").strip() or "Playlist SVX",
+        "mode": (payload.mode or "webcrypto").strip().lower(),
+        "entries": entries,
+        "total_size": cursor,
+    }
+
+    return JSONResponse({
+        "session_id": session_id,
+        "title": PLAYLIST_SESSIONS[session_id]["title"],
+        "mode": PLAYLIST_SESSIONS[session_id]["mode"],
+        "expires_at": PLAYLIST_SESSIONS[session_id]["expires_at"],
+        "parts": len(entries),
+        "total_size": cursor,
+        "manifest_url": f"/api/svx/playlist/session/{session_id}/manifest",
+        "autoplay_start_url": f"/api/svx/playlist/session/{session_id}/part/0",
+    })
+
+
+@app.get("/api/svx/playlist/session/{session_id}/manifest")
+async def svx_playlist_session_manifest(session_id: str):
+    sess = PLAYLIST_SESSIONS.get(session_id)
+    if not sess:
+        raise HTTPException(404, "Sesión de playlist no encontrada")
+    exp = _parse_iso(sess.get("expires_at"))
+    if exp and exp <= _utc_now():
+        PLAYLIST_SESSIONS.pop(session_id, None)
+        raise HTTPException(410, "Sesión de playlist expirada")
+    return JSONResponse({
+        "session_id": session_id,
+        "title": sess.get("title", "Playlist SVX"),
+        "mode": sess.get("mode", "webcrypto"),
+        "expires_at": sess.get("expires_at"),
+        "parts": len(sess.get("entries", [])),
+        "total_size": int(sess.get("total_size", 0)),
+        "entries": sess.get("entries", []),
+    })
+
+
+@app.get("/api/svx/playlist/session/{session_id}/part/{part_index}")
+async def svx_playlist_session_part(session_id: str, part_index: int):
+    sess = PLAYLIST_SESSIONS.get(session_id)
+    if not sess:
+        raise HTTPException(404, "Sesión de playlist no encontrada")
+    entries = sess.get("entries", [])
+    if part_index < 0 or part_index >= len(entries):
+        raise HTTPException(404, "Parte no encontrada")
+    current = entries[part_index]
+    next_url = None
+    if part_index + 1 < len(entries):
+        next_url = f"/api/svx/playlist/session/{session_id}/part/{part_index + 1}"
+    return JSONResponse({
+        "session_id": session_id,
+        "part_index": part_index,
+        "stream_url": current["stream_url"],
+        "item": current["item"],
+        "label": current["part_label"],
+        "next_part_url": next_url,
+        "is_last": part_index == (len(entries) - 1),
     })
 
 
@@ -2531,4 +2836,3 @@ async def play_session_stream(session_id: str, entry: str, request: Request):
                 _record_source_health(int(alt["id"]), ok=False, error=str(e))
                 continue
         raise HTTPException(503, f"Fallback stream falló: {first_err}")
-
