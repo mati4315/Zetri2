@@ -43,7 +43,7 @@ SALT_LEN       = 16
 IV_LEN         = 16
 INDEX_LEN_SIZE = 4                          # uint32 LE
 HEADER_BASE    = MAGIC_LEN + SALT_LEN + IV_LEN + INDEX_LEN_SIZE  # 44 bytes fijos
-KDF_ITERATIONS = 200_000
+KDF_ITERATIONS = 20000
 CHUNK_SIZE     = 256 * 1024                 # 256 KB para lectura de archivos
 
 VIDEO_EXTS = {'.mp4', '.mkv', '.mov', '.avi', '.webm', '.ts', '.flv', '.m4v', '.wmv'}

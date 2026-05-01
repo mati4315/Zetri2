@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -343,6 +343,12 @@
     document.getElementById('playCancelBtn').style.display = 'none';
   }
 
+  function abortPrevious() {
+    if (playAbortController) playAbortController.abort();
+    loadAborted = false;
+  }
+
+
   function b64ToBytes(b64) {
     const bin = atob(b64);
     const out = new Uint8Array(bin.length);
@@ -415,14 +421,15 @@
     const queue = [];
     sb.addEventListener('updateend', () => appendQueue(sb, queue));
 
-    const key = await deriveCtrKey(password, manifest.crypto.salt_b64, manifest.kdf_iterations || 200000);
+    const key = await deriveCtrKey(password, manifest.crypto.salt_b64, manifest.kdf_iterations || 20000);
     const entrySize = Number(entry.size || 0);
     let start = 0;
     let started = false;
 
     while (start < entrySize) {
       if (signal?.aborted || loadAborted) throw new Error('Cancelado');
-      const end = Math.min(entrySize - 1, start + 1024 * 1024 - 1);
+      const chunkSize = started ? 1024 * 1024 : 128 * 1024;
+      const end = Math.min(entrySize - 1, start + chunkSize - 1);
       const res = await fetch(`${entry.chunk_url}?start=${start}&end=${end}`, { signal: signal || undefined });
       if (!res.ok) throw new Error(`Chunk error (${res.status})`);
 
@@ -463,7 +470,7 @@
       return;
     }
 
-    loadAborted = false;
+    abortPrevious();
     playAbortController = new AbortController();
     const { signal } = playAbortController;
     document.getElementById('playCancelBtn').style.display = 'inline-flex';
@@ -492,9 +499,12 @@
       if (!entries.length) throw new Error('El token no contiene videos');
 
       renderEntries(entries, async (entry) => {
+        abortPrevious();
+        playAbortController = new AbortController();
+        const { signal: s2 } = playAbortController;
         if (supportsProCrypto()) {
           try {
-            await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), null);
+            await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), s2);
             setPill('SVX Pro', 'ok');
             setPlayStatus(`Reproduciendo ${entry.name} (WebCrypto).`, 100);
           } catch {
@@ -537,7 +547,7 @@
       return;
     }
 
-    loadAborted = false;
+    abortPrevious();
     playAbortController = new AbortController();
     const { signal } = playAbortController;
     document.getElementById('playCancelBtn').style.display = 'inline-flex';
