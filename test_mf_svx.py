@@ -6,6 +6,7 @@ import re
 from html import unescape
 
 # Simular entorno de Zetri
+# Simular entorno de Zetri
 def _http_get_with_proxy_fallback(url, **kwargs):
     return requests.get(url, **kwargs)
 
