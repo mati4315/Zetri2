@@ -914,9 +914,27 @@ def get_mediafire_info(url: str) -> dict:
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
     }
-    resp = _http_get_with_proxy_fallback(url, headers=headers, timeout=20, allow_redirects=True)
+    resp = _http_get_with_proxy_fallback(url, headers=headers, timeout=20, allow_redirects=False, stream=True)
+    
+    # Manejar redirección automática (Cuentas Premium de MediaFire)
+    if resp.status_code in (301, 302, 303, 307, 308) and "Location" in resp.headers:
+        download_url = resp.headers["Location"]
+        resp.close()
+        # Fallback para nombre del archivo
+        name_m = re.search(r'mediafire\.com/file/[^/]+/([^/]+)/', url)
+        title = name_m.group(1) if name_m else "mediafire_file"
+        ext = title.rsplit('.', 1)[-1].lower() if '.' in title else 'bin'
+        from urllib.parse import unquote
+        title = unquote(title)
+        return {
+            'title':        title,
+            'download_url': download_url,
+            'ext':          ext,
+        }
+
     resp.raise_for_status()
     html = resp.text
+    resp.close()
 
     # Buscar URL de descarga directa (download\d+.mediafire.com)
     m = re.search(r'href="(https://download\d+\.mediafire\.com/[^"]+)"', html)
