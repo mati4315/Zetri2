@@ -93,6 +93,21 @@ tempfile.tempdir = tmp_dir_path
 
 app = FastAPI(title="Zetri - SVX Streaming & RAR Live")
 
+@app.on_event("startup")
+async def startup_event():
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        print("\n" + "="*50)
+        print(" 🔗 ZETRI PUENTE LOCAL ACTIVADO")
+        print(f" 📺 Para usar VLC/TV usa la IP: http://{local_ip}:8098")
+        print("="*50 + "\n")
+    except Exception:
+        pass
+
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
@@ -138,6 +153,20 @@ def _iso_utc(dt: datetime) -> str:
 def _parse_iso(dt_str: str | None) -> datetime | None:
     if not dt_str:
         return None
+    return datetime.fromisoformat(dt_str)
+
+@app.get("/api/ip")
+def get_local_ip():
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return {"ip": local_ip}
+    except Exception:
+        return {"ip": "127.0.0.1"}
+
     try:
         dt = datetime.fromisoformat(dt_str)
         # Compatibilidad con datos legacy guardados sin timezone.

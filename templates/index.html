@@ -184,6 +184,7 @@
       <div class="row">
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="startTokenPlayback()">⚡ Iniciar Pro</button>
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="loadSvx()">🔍 Legacy</button>
+        <button class="btn btn-primary" style="flex:1;margin:0; background:linear-gradient(90deg,#f97316,#ea580c)" onclick="copyVlcBridgeUrl()">📺 Puente VLC</button>
         <button class="btn btn-cancel" id="playCancelBtn" style="display:none;flex:0 0 auto;margin:0" onclick="cancelLoad()">■ Cancelar</button>
       </div>
       <label>URL Legacy (opcional)</label>
@@ -346,6 +347,46 @@
   function abortPrevious() {
     if (playAbortController) playAbortController.abort();
     loadAborted = false;
+  }
+
+  async function copyVlcBridgeUrl() {
+    const token = document.getElementById('playToken').value.trim();
+    const url = document.getElementById('playUrl').value.trim();
+    const pwd = document.getElementById('playPwd').value;
+    
+    if (!token && !url) {
+      alert('Ingresa un Token o URL Legacy para generar el Puente.');
+      return;
+    }
+    if (token && !pwd) {
+      alert('Falta la contraseña del archivo SVX.');
+      return;
+    }
+
+    let host = window.location.origin;
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+       try {
+         const res = await fetch('/api/ip');
+         if (res.ok) {
+            const data = await res.json();
+            host = `http://${data.ip}:${window.location.port}`;
+         }
+       } catch(e) {}
+    }
+
+    let targetUrl = '';
+    if (token) {
+      targetUrl = host + '/api/svx/stream?token=' + encodeURIComponent(token) + '&password=' + encodeURIComponent(pwd) + '&file_index=0';
+    } else {
+      targetUrl = host + '/api/svx/stream?url=' + encodeURIComponent(url) + '&password=' + encodeURIComponent(pwd) + '&file_index=0';
+    }
+    
+    try {
+      await navigator.clipboard.writeText(targetUrl);
+      alert('¡URL de Puente Local copiada con éxito!\n\nPuedes pegarla en VLC (Abrir Red) o en tu Smart TV para verla sin cargar el servidor.\n\nLink: ' + targetUrl);
+    } catch (err) {
+      alert('Copia manualmente este enlace para VLC:\n\n' + targetUrl);
+    }
   }
 
 
