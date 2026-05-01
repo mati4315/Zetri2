@@ -6,6 +6,7 @@ import threading as _threading
 import traceback
 
 import json
+import logging
 import sqlite3
 import secrets
 import uuid
@@ -94,6 +95,7 @@ os.environ["TMP"] = tmp_dir_path
 tempfile.tempdir = tmp_dir_path
 
 app = FastAPI(title="Zetri - SVX Streaming & RAR Live")
+CLIENT_LOG_FILE = Path("client_debug.log")
 
 @app.on_event("startup")
 async def startup_event():
@@ -278,6 +280,30 @@ def _log_view_event(token: str, session_id: str, event: str, detail: str = "") -
             conn.commit()
         finally:
             conn.close()
+
+
+class ClientLogInput(BaseModel):
+    event: str
+    detail: str | None = None
+    context: dict | None = None
+
+
+@app.post("/api/client-log")
+async def client_log(payload: ClientLogInput, request: Request):
+    try:
+        ip = request.client.host if request.client else "unknown"
+        line = {
+            "ts": _iso_utc(_utc_now()),
+            "ip": ip,
+            "event": (payload.event or "").strip()[:120],
+            "detail": (payload.detail or "")[:2000],
+            "context": payload.context or {},
+        }
+        with open(CLIENT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
 
 
 def _init_svx_core_db() -> None:

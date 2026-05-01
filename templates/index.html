@@ -404,6 +404,20 @@
     if (fill) fill.style.width = (pct || 0) + '%';
   }
 
+  async function logClient(event, detail, context) {
+    try {
+      await fetch('/api/client-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: event || 'event',
+          detail: detail || '',
+          context: context || {}
+        })
+      });
+    } catch (_) {}
+  }
+
   function supportsProCrypto() {
     return !!(window.crypto && window.crypto.subtle && window.MediaSource);
   }
@@ -414,9 +428,12 @@
 
   function playEntry(streamUrl) {
     const player = playerRef();
+    logClient('play_entry_stream', 'Setting direct stream src', { streamUrl });
     player.src = streamUrl;
     player.load();
-    player.play().catch(() => {});
+    player.play().catch((e) => {
+      logClient('play_entry_stream_error', String((e && e.message) || e || 'play failed'), { streamUrl });
+    });
   }
 
   function setupPlaylistAutoplay(entries, startIndex = 0) {
@@ -599,6 +616,7 @@
   }
 
   async function playEntryWebCrypto(entry, manifest, password, signal) {
+    await logClient('pro_start', 'Starting WebCrypto playback', { entry: entry?.name, ext: entry?.ext });
     const player = playerRef();
     const ms = new MediaSource();
     player.src = URL.createObjectURL(ms);
@@ -628,13 +646,20 @@
     let start = 0;
     let started = false;
     let playRejected = null;
+    let playbackStarted = false;
+    const onPlaying = () => { playbackStarted = true; };
+    player.addEventListener('playing', onPlaying, { once: true });
+    player.addEventListener('timeupdate', onPlaying, { once: true });
 
     while (start < entrySize) {
       if (signal?.aborted || loadAborted) throw new Error('Cancelado');
       const chunkSize = started ? 1024 * 1024 : 128 * 1024;
       const end = Math.min(entrySize - 1, start + chunkSize - 1);
       const res = await fetch(`${entry.chunk_url}?start=${start}&end=${end}`, { signal: signal || undefined });
-      if (!res.ok) throw new Error(`Chunk error (${res.status})`);
+      if (!res.ok) {
+        await logClient('pro_chunk_http_error', `Chunk HTTP ${res.status}`, { entry: entry?.name, start, end });
+        throw new Error(`Chunk error (${res.status})`);
+      }
 
       const ksOffset = Number(res.headers.get('X-SVX-Keystream-Offset') || 0);
       const encrypted = new Uint8Array(await res.arrayBuffer());
@@ -649,12 +674,30 @@
           await player.play();
         } catch (e) {
           playRejected = e || new Error('Autoplay bloqueado');
+          await logClient('pro_play_rejected', String((e && e.message) || e || 'rejected'), { entry: entry?.name });
         }
       }
 
       start = end + 1;
       const pct = Math.min(95, Math.floor((start / entrySize) * 100));
       setPlayStatus(`Descifrando en navegador... ${pct}%`, pct);
+
+      // Si el arranque Pro se demora demasiado (metadata/moov tardío),
+      // forzamos fallback para no esperar hasta 100%.
+      if (!playbackStarted && !playRejected && entrySize > 0) {
+        const ratio = start / entrySize;
+        const minBytes = 8 * 1024 * 1024;
+        if (start >= minBytes && ratio >= 0.35 && player.readyState < 2) {
+          await logClient('pro_slow_start_fallback', 'No inició playback temprano en Pro', {
+            entry: entry?.name,
+            downloaded: start,
+            total: entrySize,
+            ratio,
+            readyState: player.readyState
+          });
+          throw new Error('Arranque Pro tardío');
+        }
+      }
     }
 
     await new Promise(resolve => {
@@ -666,8 +709,15 @@
     });
 
     try { ms.endOfStream(); } catch {}
-    if (playRejected) throw new Error('No se pudo iniciar reproducción en modo Pro');
-    if (player.readyState < 2) throw new Error('Media no lista para reproducir en modo Pro');
+    if (playRejected) {
+      await logClient('pro_end_rejected', 'play() rejected', { entry: entry?.name, readyState: player.readyState });
+      throw new Error('No se pudo iniciar reproducción en modo Pro');
+    }
+    if (player.readyState < 2) {
+      await logClient('pro_end_not_ready', 'readyState < 2', { entry: entry?.name, readyState: player.readyState });
+      throw new Error('Media no lista para reproducir en modo Pro');
+    }
+    await logClient('pro_ok', 'WebCrypto playback completed', { entry: entry?.name });
   }
 
   async function startTokenPlayback() {
@@ -695,7 +745,10 @@
         signal,
       });
       const session = await sres.json();
-      if (!sres.ok) throw new Error(session.detail || 'No se pudo crear sesión');
+      if (!sres.ok) {
+        await logClient('pro_session_error', session.detail || 'session create failed', { token });
+        throw new Error(session.detail || 'No se pudo crear sesión');
+      }
       activeSessionId = session.session_id;
 
       setPlayStatus('Cargando manifest...', 25);
@@ -729,7 +782,14 @@
       if (supportsProCrypto()) {
         setPill('SVX Pro', 'ok');
         setPlayStatus('WebCrypto activo. Arrancando video...', 45);
-        await playEntryWebCrypto(entries[0], manifest, pwd, signal);
+        try {
+          await playEntryWebCrypto(entries[0], manifest, pwd, signal);
+        } catch (e) {
+          await logClient('pro_initial_fallback', String((e && e.message) || e || 'fallback'), { entry: entries[0]?.name });
+          playEntry(entries[0].fallback_stream_url);
+          setPill('Fallback', 'warn');
+          setPlayStatus(`Fallback activado para ${entries[0].name}.`, 100);
+        }
       } else {
         setPill('Fallback', 'warn');
         setPlayStatus('Navegador sin WebCrypto/MSE. Usando fallback...', 45);
