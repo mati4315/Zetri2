@@ -755,8 +755,13 @@
   async function copyVlcBridgeUrl() {
     let url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value;
+    const jsonText = document.getElementById('playlistJsonText')?.value || '';
+    let playlistJson = null;
+    if (jsonText.trim()) {
+      try { playlistJson = parsePlaylistJsonText(jsonText); } catch (_) {}
+    }
     
-    if (!url) {
+    if (!playlistJson && !url) {
       alert('Ingresa una URL para generar el Puente.');
       return;
     }
@@ -775,6 +780,29 @@
     }
 
     try {
+      if (playlistJson && playlistJson.parts && playlistJson.parts.length > 1) {
+        const body = {
+          title: playlistJson.title || 'Playlist SVX',
+          mode: 'fallback',
+          password: pwd || '',
+          parts: playlistJson.parts.map((p, i) => ({ url: p.url, label: p.label || `Parte ${i + 1}` })),
+        };
+        const sres = await fetch('/api/svx/playlist/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const sdata = await sres.json();
+        if (!sres.ok || !sdata.session_id) {
+          throw new Error(sdata.detail || 'No se pudo crear playlist para VLC');
+        }
+        const m3uUrl = `${host}/api/svx/playlist/session/${encodeURIComponent(sdata.session_id)}/m3u`;
+        await navigator.clipboard.writeText(m3uUrl);
+        setPlayStatus('¡M3U de Playlist copiada para VLC!', 100);
+        setTimeout(() => setPlayStatus('Listo.', 0), 2000);
+        return;
+      }
+
       // Obtenemos la URL directa o de stream procesada por el backend real
       const reqUrl = `/api/extract?url=${encodeURIComponent(url)}&password=${encodeURIComponent(pwd)}`;
       const reqRes = await fetch(reqUrl);

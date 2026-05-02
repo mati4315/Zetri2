@@ -2808,6 +2808,32 @@ async def svx_playlist_session_part(session_id: str, part_index: int):
     })
 
 
+@app.get("/api/svx/playlist/session/{session_id}/m3u")
+async def svx_playlist_session_m3u(session_id: str, request: Request):
+    sess = PLAYLIST_SESSIONS.get(session_id)
+    if not sess:
+        raise HTTPException(404, "Sesión de playlist no encontrada")
+    exp = _parse_iso(sess.get("expires_at"))
+    if exp and exp <= _utc_now():
+        PLAYLIST_SESSIONS.pop(session_id, None)
+        raise HTTPException(410, "Sesión de playlist expirada")
+
+    entries = sess.get("entries", [])
+    title = sess.get("title", "Playlist SVX")
+    base = str(request.base_url).rstrip("/")
+    lines = ["#EXTM3U", f"#EXTINF:-1,{title}"]
+    for e in entries:
+        label = e.get("part_label") or e.get("item") or "Parte"
+        lines.append(f"#EXTINF:-1,{label}")
+        stream_url = str(e.get("stream_url") or "")
+        if stream_url.startswith("/"):
+            lines.append(base + stream_url)
+        else:
+            lines.append(stream_url)
+    content = "\n".join(lines) + "\n"
+    return Response(content=content, media_type="audio/x-mpegurl")
+
+
 @app.post("/api/tokens/register")
 async def token_register(payload: TokenRegisterInput, request: Request):
     raise HTTPException(410, "MÃƒÂ³dulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
