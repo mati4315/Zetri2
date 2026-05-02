@@ -211,8 +211,13 @@
       </div>
       <input type="file" id="playlistJsonFile" accept=".json,application/json" style="display:none">
       <div class="tip">Playlist: pegá múltiples URLs .svx separadas por salto de línea para reproducción continua.</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <input type="checkbox" id="proPlaylistContinuous">
+        <span>Pro continuo playlist (experimental)</span>
+      </label>
       <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
       <div class="status-line" id="playStatusText">Listo.</div>
+      <div class="status-line" id="playlistTimelineText" style="opacity:.85">Timeline playlist: -</div>
       <div class="bar"><div class="fill" id="playFill"></div></div>
       <div class="tip">El modo Pro usa WebCrypto en tu navegador. Legacy está deshabilitado temporalmente.</div>
     </div>
@@ -423,7 +428,19 @@
   let loadAborted = false;
   let activeSessionId = '';
   let activeManifest = null;
-  let playlistAuto = { enabled: false, entries: [], index: 0 };
+  let playlistAuto = {
+    enabled: false,
+    entries: [],
+    index: 0,
+    durations: [],
+    totalDuration: 0,
+    switching: false,
+    preloadIndex: -1,
+    preloadVideo: null,
+    timelineHandler: null,
+    endHandler: null,
+  };
+  const PLAYLIST_TRANSITION_EARLY_SEC = 1.2;
   let proStartAttemptId = 0;
   let proFallbackInProgress = false;
 
@@ -463,6 +480,112 @@
     return document.getElementById('player');
   }
 
+  function fmtClock(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+    return `${m}:${String(r).padStart(2, '0')}`;
+  }
+
+  function setPlaylistTimelineText(text) {
+    const el = document.getElementById('playlistTimelineText');
+    if (el) el.textContent = text || 'Timeline playlist: -';
+  }
+
+  function getOrCreatePlaylistPreloadVideo() {
+    if (playlistAuto.preloadVideo) return playlistAuto.preloadVideo;
+    const v = document.createElement('video');
+    v.preload = 'auto';
+    v.muted = true;
+    v.playsInline = true;
+    v.style.display = 'none';
+    document.body.appendChild(v);
+    playlistAuto.preloadVideo = v;
+    return v;
+  }
+
+  function clearPlaylistPreload() {
+    const v = playlistAuto.preloadVideo;
+    playlistAuto.preloadIndex = -1;
+    if (!v) return;
+    try {
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+    } catch (_) {}
+  }
+
+  function updatePlaylistTimeline(player) {
+    if (!playlistAuto.enabled || playlistAuto.entries.length <= 1) {
+      setPlaylistTimelineText('Timeline playlist: -');
+      return;
+    }
+    const before = playlistAuto.durations
+      .slice(0, Math.max(0, playlistAuto.index))
+      .reduce((a, b) => a + (Number(b) || 0), 0);
+    const cur = Number(player?.currentTime || 0);
+    const global = before + cur;
+    const total = Number(playlistAuto.totalDuration || 0);
+    setPlaylistTimelineText(`Timeline playlist: ${fmtClock(global)} / ${fmtClock(total)} (parte ${playlistAuto.index + 1}/${playlistAuto.entries.length})`);
+  }
+
+  function preloadNextPart() {
+    if (!playlistAuto.enabled) return;
+    const next = playlistAuto.index + 1;
+    if (next >= playlistAuto.entries.length) return;
+    const e = playlistAuto.entries[next];
+    const url = e.stream_url || e.fallback_stream_url || '';
+    if (!url || playlistAuto.preloadIndex === next) return;
+    const v = getOrCreatePlaylistPreloadVideo();
+    try {
+      v.src = url;
+      v.load();
+      playlistAuto.preloadIndex = next;
+    } catch (_) {}
+  }
+
+  function jumpToNextPart() {
+    if (!playlistAuto.enabled || playlistAuto.switching) return;
+    const next = playlistAuto.index + 1;
+    if (next >= playlistAuto.entries.length) {
+      playlistAuto.enabled = false;
+      setPill('Completado', 'ok');
+      setPlayStatus('Playlist finalizada.', 100);
+      updatePlaylistTimeline(playerRef());
+      return;
+    }
+    playlistAuto.switching = true;
+    playlistAuto.index = next;
+    const entry = playlistAuto.entries[next];
+    playEntry(entry.stream_url || entry.fallback_stream_url || '');
+    setPlayStatus(`Reproduciendo parte ${next + 1}/${playlistAuto.entries.length}: ${entry.name || entry.label || 'parte'}`, 100);
+    preloadNextPart();
+    setTimeout(() => { playlistAuto.switching = false; }, 300);
+  }
+
+  function setupPlaylistTimelineHandlers() {
+    const player = playerRef();
+    if (playlistAuto.timelineHandler) player.removeEventListener('timeupdate', playlistAuto.timelineHandler);
+    if (playlistAuto.endHandler) player.removeEventListener('ended', playlistAuto.endHandler);
+
+    playlistAuto.timelineHandler = () => {
+      if (!playlistAuto.enabled) return;
+      updatePlaylistTimeline(player);
+      const d = Number(player.duration || 0);
+      if (d > 0) {
+        playlistAuto.durations[playlistAuto.index] = d;
+        playlistAuto.totalDuration = playlistAuto.durations.reduce((a, b) => a + (Number(b) || 0), 0);
+      }
+      const remain = d > 0 ? (d - Number(player.currentTime || 0)) : 9999;
+      if (remain <= PLAYLIST_TRANSITION_EARLY_SEC) jumpToNextPart();
+    };
+    playlistAuto.endHandler = () => jumpToNextPart();
+    player.addEventListener('timeupdate', playlistAuto.timelineHandler);
+    player.addEventListener('ended', playlistAuto.endHandler);
+  }
+
   function playEntry(streamUrl) {
     const player = playerRef();
     logClient('play_entry_stream', 'Setting direct stream src', { streamUrl });
@@ -474,22 +597,20 @@
   }
 
   function setupPlaylistAutoplay(entries, startIndex = 0) {
-    const player = playerRef();
-    playlistAuto = { enabled: true, entries: entries || [], index: Math.max(0, startIndex || 0) };
-    player.onended = () => {
-      if (!playlistAuto.enabled) return;
-      const next = playlistAuto.index + 1;
-      if (next >= playlistAuto.entries.length) {
-        playlistAuto.enabled = false;
-        setPill('Completado', 'ok');
-        setPlayStatus('Playlist finalizada.', 100);
-        return;
-      }
-      playlistAuto.index = next;
-      const entry = playlistAuto.entries[next];
-      playEntry(entry.stream_url || entry.fallback_stream_url || '');
-      setPlayStatus(`Reproduciendo parte ${next + 1}/${playlistAuto.entries.length}: ${entry.name || entry.label || 'parte'}`, 100);
+    const items = entries || [];
+    playlistAuto = {
+      ...playlistAuto,
+      enabled: true,
+      entries: items,
+      index: Math.max(0, startIndex || 0),
+      durations: items.map(() => 0),
+      totalDuration: 0,
+      switching: false,
+      preloadIndex: -1,
     };
+    setupPlaylistTimelineHandlers();
+    updatePlaylistTimeline(playerRef());
+    preloadNextPart();
   }
 
   function cancelLoad() {
@@ -503,13 +624,20 @@
     setPill('Cancelado', 'warn');
     setPlayStatus('Operación cancelada.', 0);
     document.getElementById('playCancelBtn').style.display = 'none';
+    clearPlaylistPreload();
+    setPlaylistTimelineText('Timeline playlist: -');
   }
 
   function abortPrevious() {
     if (playAbortController) playAbortController.abort();
     playlistAuto.enabled = false;
     const player = playerRef();
-    player.onended = null;
+    if (playlistAuto.timelineHandler) player.removeEventListener('timeupdate', playlistAuto.timelineHandler);
+    if (playlistAuto.endHandler) player.removeEventListener('ended', playlistAuto.endHandler);
+    playlistAuto.timelineHandler = null;
+    playlistAuto.endHandler = null;
+    clearPlaylistPreload();
+    setPlaylistTimelineText('Timeline playlist: -');
     loadAborted = false;
   }
 
@@ -608,6 +736,20 @@
     }));
     if (!entries.length) throw new Error('Playlist vacía');
     return entries;
+  }
+
+  async function startPlaylistFastStream(parts, password, signal) {
+    const listEntries = await startLegacyPlaylist(parts, password, signal);
+    renderEntries(listEntries, (entry) => {
+      playEntry(entry.stream_url);
+      setPill('Fallback', 'warn');
+    });
+    await logClient('pro_playlist_fast_mode', 'Using immediate stream autoplay for playlist', { parts: listEntries.length });
+    if (!listEntries.length) throw new Error('Playlist vacía');
+    playEntry(listEntries[0].stream_url);
+    setupPlaylistAutoplay(listEntries, 0);
+    setPill('SVX Pro', 'ok');
+    setPlayStatus(`Reproduciendo playlist al vuelo (${listEntries.length} partes).`, 100);
   }
 
   async function copyVlcBridgeUrl() {
@@ -970,19 +1112,46 @@
 
       if (playlistJson && playlistJson.parts.length > 1) {
         setPlayStatus('Creando playlist continua...', 20);
-        const listEntries = await startLegacyPlaylist(playlistJson.parts, pwd, signal);
-        renderEntries(listEntries, (entry) => {
-          playEntry(entry.stream_url);
-          setPill('Fallback', 'warn');
-        });
-        // Modo rápido para playlist: arranca inmediato por stream y encadena partes.
-        // Evita esperas largas de descifrado al 100% en playlists multi-parte.
-        await logClient('pro_playlist_fast_mode', 'Using immediate stream autoplay for playlist', { parts: listEntries.length });
-        if (!listEntries.length) throw new Error('Playlist vacía');
-        playEntry(listEntries[0].stream_url);
-        setupPlaylistAutoplay(listEntries, 0);
-        setPill('SVX Pro', 'ok');
-        setPlayStatus(`Reproduciendo playlist al vuelo (${listEntries.length} partes).`, 100);
+        const wantsContinuous = !!document.getElementById('proPlaylistContinuous')?.checked;
+        if (wantsContinuous && supportsProCrypto()) {
+          try {
+            setPlayStatus('Iniciando Pro continuo de playlist...', 30);
+            const proManifest = await startProPlaylistSession(playlistJson.parts, pwd, signal);
+            const proEntries = (proManifest.parts || []).map((p, i) => ({
+              name: (p.entry && p.entry.name) ? p.entry.name : (p.label || `parte_${i + 1}`),
+              label: p.label || `Parte ${i + 1}`,
+              ext: (p.entry && p.entry.ext) || 'mp4',
+              stream_url: p.fallback_stream_url || '',
+            }));
+            renderEntries(proEntries, (entry) => {
+              playEntry(entry.stream_url);
+              setPill('Fallback', 'warn');
+            });
+            setPlaylistTimelineText('Timeline playlist: Pro continuo activo');
+            setPill('SVX Pro', 'ok');
+            setPlayStatus(`Pro continuo activo (${proEntries.length} partes).`, 45);
+            playPlaylistWebCrypto(proManifest, pwd, signal).then(() => {
+              if (!loadAborted) {
+                setPill('Completado', 'ok');
+                setPlayStatus('Playlist Pro finalizada.', 100);
+              }
+            }).catch(async (err) => {
+              if (loadAborted) return;
+              await logClient('pro_playlist_continuous_error', String((err && err.message) || err || 'unknown'), {});
+              setPill('Fallback', 'warn');
+              setPlayStatus('Pro continuo falló, cambiando a modo al vuelo...', 40);
+              await startPlaylistFastStream(playlistJson.parts, pwd, signal);
+            });
+          } catch (e) {
+            await logClient('pro_playlist_continuous_boot_error', String((e && e.message) || e || 'unknown'), {});
+            setPill('Fallback', 'warn');
+            setPlayStatus('No se pudo iniciar Pro continuo. Usando modo al vuelo...', 35);
+            await startPlaylistFastStream(playlistJson.parts, pwd, signal);
+          }
+        } else {
+          // Modo rápido estable: arranca inmediato por stream y encadena partes.
+          await startPlaylistFastStream(playlistJson.parts, pwd, signal);
+        }
       } else {
         const sourceUrl = playlistJson && playlistJson.parts.length ? playlistJson.parts[0].url : url;
         const { res: sres, data: session } = await fetchJsonWithTimeout(

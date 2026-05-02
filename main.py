@@ -106,8 +106,8 @@ async def startup_event():
         local_ip = s.getsockname()[0]
         s.close()
         print("\n" + "="*50)
-        print(" 🔗 ZETRI PUENTE LOCAL ACTIVADO (CON HTTPS)")
-        print(f" 📺 Para usar VLC/TV usa la IP: https://{local_ip}:8098")
+        print(" Ã°Å¸â€â€” ZETRI PUENTE LOCAL ACTIVADO (CON HTTPS)")
+        print(f" Ã°Å¸â€œÂº Para usar VLC/TV usa la IP: https://{local_ip}:8098")
         print("="*50 + "\n")
     except Exception:
         pass
@@ -250,7 +250,7 @@ def _http_get_with_proxy_fallback(url: str, *, timeout: int = 20, headers: dict 
             continue
     if last_error:
         raise last_error
-    raise RuntimeError("No se pudo crear conexión HTTP")
+    raise RuntimeError("No se pudo crear conexiÃƒÂ³n HTTP")
 
 
 def _source_fingerprint(url: str) -> str:
@@ -266,7 +266,7 @@ def _db_conn() -> sqlite3.Connection:
         conn.execute("PRAGMA foreign_keys=ON")
     except sqlite3.OperationalError:
         # En algunos hosts/discos (o ACLs restringidas) los PRAGMA pueden fallar.
-        # Seguimos con la conexión base para no tumbar el flujo principal.
+        # Seguimos con la conexiÃƒÂ³n base para no tumbar el flujo principal.
         pass
     return conn
 
@@ -564,7 +564,7 @@ def _record_source_health(source_id: int, ok: bool, latency_ms: float | None = N
             finally:
                 conn.close()
     except sqlite3.OperationalError:
-        # Telemetría no debe romper creación de sesión/reproducción.
+        # TelemetrÃƒÂ­a no debe romper creaciÃƒÂ³n de sesiÃƒÂ³n/reproducciÃƒÂ³n.
         return
 
 
@@ -694,7 +694,7 @@ def _read_header_meta(path_or_url: str) -> tuple[bytes, bytes, int]:
         raise ValueError("Archivo SVX incompleto")
     magic = data[:_svx.MAGIC_LEN]
     if magic != _svx.MAGIC:
-        raise ValueError("No es un archivo SVX válido")
+        raise ValueError("No es un archivo SVX vÃƒÂ¡lido")
 
     salt = data[_svx.MAGIC_LEN:_svx.MAGIC_LEN + _svx.SALT_LEN]
     iv = data[_svx.MAGIC_LEN + _svx.SALT_LEN:_svx.MAGIC_LEN + _svx.SALT_LEN + _svx.IV_LEN]
@@ -725,7 +725,7 @@ def _resolve_svx_input_url(source_url: str) -> str:
         host = (urlparse(u).hostname or "").lower()
     except Exception:
         host = ""
-    # IMPORTANT: no re-procesar enlaces directos (download*.mediafire.com) como páginas HTML.
+    # IMPORTANT: no re-procesar enlaces directos (download*.mediafire.com) como pÃƒÂ¡ginas HTML.
     # Hacerlo puede colgar el modo Pro al intentar parsear contenido binario pesado.
     if host.startswith("download") and host.endswith(".mediafire.com"):
         return u
@@ -858,7 +858,7 @@ def _load_active_session(session_id: str) -> sqlite3.Row:
         finally:
             conn.close()
     if not row:
-        raise HTTPException(404, "Sesión no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n no encontrada")
     expires_at = _parse_iso(row["expires_at"])
     if not expires_at or expires_at <= _utc_now():
         with DB_LOCK:
@@ -868,7 +868,7 @@ def _load_active_session(session_id: str) -> sqlite3.Row:
                 conn.commit()
             finally:
                 conn.close()
-        raise HTTPException(410, "Sesión expirada")
+        raise HTTPException(410, "SesiÃƒÂ³n expirada")
     return row
 
 
@@ -900,7 +900,7 @@ class HTTPRangeFile(io.RawIOBase):
         self._size = -1
         self._actual_url = url
         self._session = _new_requests_session()
-        # Resolver URL final y tamaño
+        # Resolver URL final y tamaÃƒÂ±o
         try:
             r = self._session.head(url, allow_redirects=True, timeout=10)
             self._size = int(r.headers.get('Content-Length', 0))
@@ -1039,7 +1039,7 @@ def get_mediafire_info(url: str) -> dict:
     }
     resp = _http_get_with_proxy_fallback(url, headers=headers, timeout=20, allow_redirects=False, stream=True)
     
-    # Manejar redirección automática (Cuentas Premium de MediaFire)
+    # Manejar redirecciÃƒÂ³n automÃƒÂ¡tica (Cuentas Premium de MediaFire)
     if resp.status_code in (301, 302, 303, 307, 308) and "Location" in resp.headers:
         download_url = resp.headers["Location"]
         resp.close()
@@ -1066,9 +1066,9 @@ def get_mediafire_info(url: str) -> dict:
     if not m:
         m = re.search(r'"(https://download\d+\.mediafire\.com/[^"]+)"', html)
     if not m:
-        raise ValueError("No se encontró URL de descarga directa en la página de MediaFire")
+        raise ValueError("No se encontrÃƒÂ³ URL de descarga directa en la pÃƒÂ¡gina de MediaFire")
 
-    download_url = unescape(m.group(1))   # convierte &amp; → &
+    download_url = unescape(m.group(1))   # convierte &amp; Ã¢â€ â€™ &
 
     # Extraer nombre del archivo (intentar desde HTML primero, luego URL)
     title = ""
@@ -1141,7 +1141,7 @@ async def extract_direct_url(url: str, quality: str = "audio", bypass: bool = Fa
 
         archive_exts = {"zip", "rar", "7z", "tar", "gz", "bz2"}
         if ext_saved.lower().strip('.') == "svx":
-            # ── SVX: Resolver y listar videos encriptados al vuelo ───────────
+            # Ã¢â€â‚¬Ã¢â€â‚¬ SVX: Resolver y listar videos encriptados al vuelo Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             index, header_size, key, iv = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: _svx.read_index(None, password_saved, http_range_reader=HTTPRangeFile(direct_url))
             )
@@ -1166,7 +1166,7 @@ async def extract_direct_url(url: str, quality: str = "audio", bypass: bool = Fa
             })
 
         elif ext_saved.lower().strip('.') in archive_exts:
-            # ── Archive: resolver y listar videos on-the-fly ─────────────────
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Archive: resolver y listar videos on-the-fly Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             cache_id, suffix, cached_path = _archive_cache_key(url)
             dl_info = ARCHIVE_DOWNLOADS.get(cache_id, {})
 
@@ -1294,7 +1294,7 @@ async def extract_direct_url(url: str, quality: str = "audio", bypass: bool = Fa
 def _archive_cache_key(url: str) -> tuple[str, str, Path]:
     """
     Devuelve (cache_id, suffix, cached_path) para una URL de archivo.
-    Usa el nombre de archivo de la URL como clave de caché (ej: dannan.rar).
+    Usa el nombre de archivo de la URL como clave de cachÃƒÂ© (ej: dannan.rar).
     """
     import urllib.parse
     from pathlib import Path as _Path
@@ -1328,7 +1328,7 @@ def _archive_cache_key(url: str) -> tuple[str, str, Path]:
 def _resolve_archive_path(source: str) -> str:
     """
     Si 'source' es una URL HTTP/HTTPS descarga el archivo al directorio
-    de caché y devuelve la ruta local resultante.
+    de cachÃƒÂ© y devuelve la ruta local resultante.
     Si ya es una ruta local la devuelve tal cual.
     El archivo se cachea por hash de URL para no descargar dos veces.
     Actualiza ARCHIVE_DOWNLOADS[hash] con progreso en tiempo real.
@@ -1337,7 +1337,7 @@ def _resolve_archive_path(source: str) -> str:
         cache_id, suffix, cached_path = _archive_cache_key(source)
 
         if cached_path.exists():
-            # Ya en caché → marcar como done
+            # Ya en cachÃƒÂ© Ã¢â€ â€™ marcar como done
             ARCHIVE_DOWNLOADS[cache_id] = {
                 'status': 'done', 'pct': 100,
                 'downloaded': cached_path.stat().st_size,
@@ -1347,7 +1347,7 @@ def _resolve_archive_path(source: str) -> str:
             }
             return str(cached_path)
 
-        # Si ya está descargándose en otro hilo, esperar
+        # Si ya estÃƒÂ¡ descargÃƒÂ¡ndose en otro hilo, esperar
         import time as _t
         wait_start = _t.time()
         while ARCHIVE_DOWNLOADS.get(cache_id, {}).get('status') == 'downloading':
@@ -1356,11 +1356,11 @@ def _resolve_archive_path(source: str) -> str:
             if _t.time() - wait_start > 7200:
                 break
         
-        # Re-chequear si terminó mientras esperábamos
+        # Re-chequear si terminÃƒÂ³ mientras esperÃƒÂ¡bamos
         if cached_path.exists():
             return str(cached_path)
 
-        # Crear flag de cancelación para este download
+        # Crear flag de cancelaciÃƒÂ³n para este download
         cancel_event = _threading.Event()
         ARCHIVE_CANCEL_FLAGS[cache_id] = cancel_event
 
@@ -1494,7 +1494,7 @@ def _refresh_rar_partial_extract_snapshot(local_rar_path: str, item: str, passwo
 
 def _guess_video_names_from_partial_rar(local_rar_path: str, max_bytes: int = 8 * 1024 * 1024):
     """
-    Heurística: extrae posibles nombres de video desde bytes parciales del RAR.
+    HeurÃƒÂ­stica: extrae posibles nombres de video desde bytes parciales del RAR.
     Sirve para intentar stream progresivo antes de que UnRAR liste normalmente.
     """
     p = Path(local_rar_path)
@@ -1521,7 +1521,7 @@ def _guess_video_names_from_partial_rar(local_rar_path: str, max_bytes: int = 8 
 
 def _rar_item_has_extractable_bytes(local_rar_path: str, item: str, password: str, min_bytes: int = 4096):
     """
-    Comprueba rápidamente si UnRAR ya puede emitir bytes del item desde un RAR parcial.
+    Comprueba rÃƒÂ¡pidamente si UnRAR ya puede emitir bytes del item desde un RAR parcial.
     """
     import subprocess
     pw_flag = f"-p{password}" if password else "-p-"
@@ -1569,7 +1569,7 @@ async def archive_download_start(request: Request):
         return JSONResponse({'download_id': cache_id, 'already_cached': True,
                              'local_path': str(cached_path)})
 
-    # Si ya está en progreso no lanzar de nuevo
+    # Si ya estÃƒÂ¡ en progreso no lanzar de nuevo
     existing = ARCHIVE_DOWNLOADS.get(cache_id, {})
     if existing.get('status') == 'downloading':
         return JSONResponse({'download_id': cache_id, 'already_cached': False})
@@ -1611,7 +1611,7 @@ async def archive_download_status(download_id: str):
 async def archive_download_cancel(download_id: str):
     """
     Cancela una descarga en progreso.
-    Setea el threading.Event para que el hilo de descarga pare en el próximo chunk.
+    Setea el threading.Event para que el hilo de descarga pare en el prÃƒÂ³ximo chunk.
     Borra el archivo parcial y marca status como 'cancelled'.
     """
     info = ARCHIVE_DOWNLOADS.get(download_id)
@@ -1619,13 +1619,13 @@ async def archive_download_cancel(download_id: str):
         raise HTTPException(404, "Download ID no encontrado")
     if info.get('status') != 'downloading':
         return JSONResponse({'ok': False, 'msg': f"Estado actual: {info.get('status')} (no se puede cancelar)"})
-    # Señalizar al hilo
+    # SeÃƒÂ±alizar al hilo
     flag = ARCHIVE_CANCEL_FLAGS.get(download_id)
     if flag:
         flag.set()
     # Marcar inmediatamente para que el polling del frontend lo sepa
     ARCHIVE_DOWNLOADS[download_id]['status'] = 'cancelled'
-    return JSONResponse({'ok': True, 'msg': 'Cancelación solicitada'})
+    return JSONResponse({'ok': True, 'msg': 'CancelaciÃƒÂ³n solicitada'})
 
 async def archive_list(path: str, password: str = ""):
     """
@@ -1638,7 +1638,7 @@ async def archive_list(path: str, password: str = ""):
     except Exception as e:
         raise HTTPException(400, f"No se pudo obtener el archivo: {e}")
 
-    # Determinar qué objeto "File-like" usar: local o remoto
+    # Determinar quÃƒÂ© objeto "File-like" usar: local o remoto
     if local_path and Path(local_path).exists():
         archive_file = local_path
         ext = Path(local_path).suffix.lower()
@@ -1700,7 +1700,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
     import time as _t
     loop = asyncio.get_running_loop()
 
-    # Resolver ruta local si existe en caché
+    # Resolver ruta local si existe en cachÃƒÂ©
     local_path = ""
     cache_id, _, cached_path = _archive_cache_key(path)
     if cached_path.exists():
@@ -1714,7 +1714,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
 
     if not local_path and is_remote_rar:
         _dl_id, _dl_cached_path, _dl_status = _ensure_archive_download_thread(path)
-        # Dar una pequeÃ±a ventana para que aparezca el archivo parcial
+        # Dar una pequeÃƒÆ’Ã‚Â±a ventana para que aparezca el archivo parcial
         for _ in range(20):
             if _dl_cached_path.exists() and _dl_cached_path.stat().st_size > 0:
                 local_path = str(_dl_cached_path)
@@ -1728,7 +1728,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
         except Exception as e:
             raise HTTPException(400, f"No se pudo obtener el archivo: {e}")
 
-    # Determinar qué objeto File-like usar: local o remoto
+    # Determinar quÃƒÂ© objeto File-like usar: local o remoto
     if local_path and Path(local_path).exists():
         archive_file = local_path
         ext = Path(local_path).suffix.lower()
@@ -1740,12 +1740,12 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
     else:
         raise HTTPException(404, f"Archivo no encontrado: {path}")
 
-    print(f"\n[ARCHIVE STREAM] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"[ARCHIVE STREAM] 📂 Fuente  : {source_label}")
-    print(f"[ARCHIVE STREAM] 📋 Formato : {ext.upper()}")
-    print(f"[ARCHIVE STREAM] 🎯 Item    : {item or '(primero)'}")
+    print(f"\n[ARCHIVE STREAM] Ã¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€ÂÃ¢â€Â")
+    print(f"[ARCHIVE STREAM] Ã°Å¸â€œâ€š Fuente  : {source_label}")
+    print(f"[ARCHIVE STREAM] Ã°Å¸â€œâ€¹ Formato : {ext.upper()}")
+    print(f"[ARCHIVE STREAM] Ã°Å¸Å½Â¯ Item    : {item or '(primero)'}")
 
-    # ── ZIP ──────────────────────────────────────────────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ ZIP Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if ext == '.zip':
         import pyzipper, struct
 
@@ -1759,16 +1759,16 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
             total_size  = target_info.file_size
             mime        = MIME_MAP.get(Path(target_info.filename).suffix.lower()[1:], 'video/mp4')
             
-            # Detectar si está cifrado y si podemos usar FastPath
+            # Detectar si estÃƒÂ¡ cifrado y si podemos usar FastPath
             is_encrypted = bool(target_info.flag_bits & 0x1)
             is_stored    = (target_info.compress_type == 0)
             use_fastpath = is_stored and not is_encrypted and not password
 
-        compress_desc = "STORED (sin compresión)" if is_stored else f"COMPRESSED (método {target_info.compress_type})"
+        compress_desc = "STORED (sin compresiÃƒÂ³n)" if is_stored else f"COMPRESSED (mÃƒÂ©todo {target_info.compress_type})"
         crypto_desc   = "CIFRADO (Password)" if is_encrypted else "SIN CIFRAR"
-        print(f"[ARCHIVE STREAM] 🗜  Zip Info  : {compress_desc} | {crypto_desc}")
-        print(f"[ARCHIVE STREAM] ⚡ FastPath  : {'SÍ' if use_fastpath else 'NO'}")
-        print(f"[ARCHIVE STREAM] 📏 Tamaño    : {total_size / 1024 / 1024:.1f} MB")
+        print(f"[ARCHIVE STREAM] Ã°Å¸â€”Å“  Zip Info  : {compress_desc} | {crypto_desc}")
+        print(f"[ARCHIVE STREAM] Ã¢Å¡Â¡ FastPath  : {'SÃƒÂ' if use_fastpath else 'NO'}")
+        print(f"[ARCHIVE STREAM] Ã°Å¸â€œÂ TamaÃƒÂ±o    : {total_size / 1024 / 1024:.1f} MB")
 
         range_header = request.headers.get('range')
         start = 0
@@ -1789,11 +1789,11 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
         _fname_ref  = target_info.filename
         _hdr_offset = target_info.header_offset
 
-        print(f"[ARCHIVE STREAM] 🔍 Range     : bytes={start}-{end}/{total_size} ({content_len//1024}KB)")
+        print(f"[ARCHIVE STREAM] Ã°Å¸â€Â Range     : bytes={start}-{end}/{total_size} ({content_len//1024}KB)")
         if use_fastpath:
-            print(f"[ARCHIVE STREAM] 🚀 Modo      : FASTPATH (seek directo)")
+            print(f"[ARCHIVE STREAM] Ã°Å¸Å¡â‚¬ Modo      : FASTPATH (seek directo)")
         else:
-            print(f"[ARCHIVE STREAM] 🔄 Modo      : FALLBACK (procesamiento con password/descompresión)")
+            print(f"[ARCHIVE STREAM] Ã°Å¸â€â€ž Modo      : FALLBACK (procesamiento con password/descompresiÃƒÂ³n)")
 
         def stream_zip(skip: int, length: int):
             import pyzipper as _pz, struct as _st, time as _ts
@@ -1801,7 +1801,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
             t_start = _ts.time()
             sent    = 0
 
-            # ── FastPath: archivo sin compresión y sin cifrar ───────────
+            # Ã¢â€â‚¬Ã¢â€â‚¬ FastPath: archivo sin compresiÃƒÂ³n y sin cifrar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             if use_fastpath:
                 if isinstance(_path_ref, HTTPRangeFile):
                     file_like   = _path_ref
@@ -1812,7 +1812,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
 
                 try:
                     # Leer header local para obtener el offset exacto de los datos.
-                    # El header local puede tener campo 'extra' de tamaño diferente
+                    # El header local puede tener campo 'extra' de tamaÃƒÂ±o diferente
                     # al directorio central, por eso no podemos asumir un offset fijo.
                     file_like.seek(_hdr_offset)
                     hdr = file_like.read(30)
@@ -1823,7 +1823,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                         data_start = _hdr_offset + 30 + fname_len + extra_len
                         seek_pos   = data_start + skip
 
-                        print(f"[ZIP FASTPATH] 📍 data_offset={data_start} | seek_to={seek_pos}")
+                        print(f"[ZIP FASTPATH] Ã°Å¸â€œÂ data_offset={data_start} | seek_to={seek_pos}")
 
                         file_like.seek(seek_pos)
 
@@ -1842,25 +1842,25 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                                 elapsed    = max(_ts.time() - t_start, 0.001)
                                 speed_mb   = sent / elapsed / 1024 / 1024
                                 pct        = int(sent / length * 100)
-                                print(f"[ZIP FASTPATH] 📊 {pct}% | "
+                                print(f"[ZIP FASTPATH] Ã°Å¸â€œÅ  {pct}% | "
                                       f"{sent//1024//1024}MB/{length//1024//1024}MB | "
                                       f"{speed_mb:.1f} MB/s")
 
                         elapsed  = max(_ts.time() - t_start, 0.001)
                         speed_mb = sent / elapsed / 1024 / 1024
-                        print(f"[ZIP FASTPATH] ✅ Completado | {sent//1024//1024}MB | "
+                        print(f"[ZIP FASTPATH] Ã¢Å“â€¦ Completado | {sent//1024//1024}MB | "
                               f"{speed_mb:.1f} MB/s | {elapsed:.2f}s")
                         return
 
-                    # Header inválido → caer al fallback
-                    print(f"[ZIP FASTPATH] ⚠ Header inválido, usando fallback")
+                    # Header invÃƒÂ¡lido Ã¢â€ â€™ caer al fallback
+                    print(f"[ZIP FASTPATH] Ã¢Å¡Â  Header invÃƒÂ¡lido, usando fallback")
 
                 finally:
                     if should_close:
                         file_like.close()
 
-            # ── Fallback: descompresión en streaming ─────────────────────
-            print(f"[ZIP FALLBACK] 🔄 Descomprimiendo | skip={skip//1024}KB")
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Fallback: descompresiÃƒÂ³n en streaming Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+            print(f"[ZIP FALLBACK] Ã°Å¸â€â€ž Descomprimiendo | skip={skip//1024}KB")
             last_log = 0
             with _pz.AESZipFile(_path_ref, 'r') as zf:
                 if _pwd_ref:
@@ -1885,13 +1885,13 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                             elapsed   = max(_ts.time() - t_start, 0.001)
                             speed_mb  = sent / elapsed / 1024 / 1024
                             pct       = int(sent / length * 100)
-                            print(f"[ZIP FALLBACK] 📊 {pct}% | "
+                            print(f"[ZIP FALLBACK] Ã°Å¸â€œÅ  {pct}% | "
                                   f"{sent//1024//1024}MB/{length//1024//1024}MB | "
                                   f"{speed_mb:.1f} MB/s")
 
             elapsed  = max(_ts.time() - t_start, 0.001)
             speed_mb = sent / elapsed / 1024 / 1024
-            print(f"[ZIP FALLBACK] ✅ Completado | {sent//1024//1024}MB | "
+            print(f"[ZIP FALLBACK] Ã¢Å“â€¦ Completado | {sent//1024//1024}MB | "
                   f"{speed_mb:.1f} MB/s | {elapsed:.2f}s")
 
         status  = 206 if range_header else 200
@@ -1905,7 +1905,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
         return StreamingResponse(stream_zip(start, content_len),
                                  status_code=status, headers=headers, media_type=mime)
 
-    # ── RAR ──────────────────────────────────────────────────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ RAR Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     elif ext == '.rar':
         import subprocess, shutil
         from fastapi.responses import FileResponse
@@ -1913,7 +1913,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
         if not Path(UNRAR_BIN).exists():
             raise HTTPException(500, "UnRAR no encontrado en el servidor")
 
-        # Listar y elegir video si no se especificó
+        # Listar y elegir video si no se especificÃƒÂ³
         if not item:
             def _try_list_rar(pw_flag: str):
                 return subprocess.check_output(
@@ -1935,7 +1935,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
         # Definir MIME tipo basado en el item
         mime = MIME_MAP.get(Path(item).suffix.lower()[1:], 'video/mp4')
 
-        # 1. Obtener información del item (Tamaño real)
+        # 1. Obtener informaciÃƒÂ³n del item (TamaÃƒÂ±o real)
         item_size = None
         try:
             _rar_p_info = f'-p{password}' if password else '-p-'
@@ -1943,11 +1943,11 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                 [UNRAR_BIN, 'vt', '-y', _rar_p_info, local_path, item], 
                 text=True, timeout=15, stderr=subprocess.DEVNULL
             )
-            m_size = re.search(r'(?:Size|Tamaño):\s+(\d+)', info_out)
+            m_size = re.search(r'(?:Size|TamaÃƒÂ±o):\s+(\d+)', info_out)
             if m_size: item_size = int(m_size.group(1))
         except: pass
 
-        # 2. Gestionar extracción transparente
+        # 2. Gestionar extracciÃƒÂ³n transparente
         safe_item_name = re.sub(r'[^a-zA-Z0-9._-]', '_', item)
         item_hash = hashlib.md5(item.encode()).hexdigest()[:8]
         extracted_path = ARCHIVE_CACHE_DIR / f"ext_{cache_id}_{item_hash}_{safe_item_name}"
@@ -1957,7 +1957,7 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
             is_partial_source = dl.get('status') == 'downloading'
 
         if not extracted_path.exists():
-            print(f"[RAR STREAM] 🚀 Extrayendo item: {item}")
+            print(f"[RAR STREAM] Ã°Å¸Å¡â‚¬ Extrayendo item: {item}")
             _rar_p_ext = f'-p{password}' if password else '-p-'
             try:
                 # Extraer archivo (flattens paths con 'e')
@@ -1969,9 +1969,9 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                 if original_extracted.exists():
                     original_extracted.rename(extracted_path)
                 else:
-                    raise FileNotFoundError("Error en extracción individual")
+                    raise FileNotFoundError("Error en extracciÃƒÂ³n individual")
             except Exception as e:
-                print(f"[RAR STREAM] ❌ Error extrayendo RAR: {e}")
+                print(f"[RAR STREAM] Ã¢ÂÅ’ Error extrayendo RAR: {e}")
                 _local_path_rar = local_path
                 def stream_rar_fallback():
                     _p = f'-p{password}' if password else '-p-'
@@ -2037,8 +2037,8 @@ async def archive_stream(request: Request, path: str, password: str = "", item: 
                 headers={"X-RAR-Progressive": "1"}
             )
 
-        # 3. Servir el archivo extraído (FileResponse soporta Range nativo)
-        print(f"[RAR STREAM] ✅ Sirviendo desde caché: {extracted_path.name}")
+        # 3. Servir el archivo extraÃƒÂ­do (FileResponse soporta Range nativo)
+        print(f"[RAR STREAM] Ã¢Å“â€¦ Sirviendo desde cachÃƒÂ©: {extracted_path.name}")
         return FileResponse(
             path=extracted_path,
             media_type=mime,
@@ -2081,7 +2081,7 @@ def _probe_duration_seconds(media_path: Path) -> float:
     ffmpeg_ok = bool(shutil.which(FFMPEG_BIN) or Path(FFMPEG_BIN).exists())
     if not ffmpeg_ok:
         raise RuntimeError(
-            "No se encontró ffprobe ni ffmpeg para detectar duración. Configurá FFMPEG_BIN/FFPROBE_BIN."
+            "No se encontrÃƒÂ³ ffprobe ni ffmpeg para detectar duraciÃƒÂ³n. ConfigurÃƒÂ¡ FFMPEG_BIN/FFPROBE_BIN."
         )
     proc = subprocess.run(
         [FFMPEG_BIN, "-hide_banner", "-i", str(media_path)],
@@ -2092,7 +2092,7 @@ def _probe_duration_seconds(media_path: Path) -> float:
     txt = (proc.stderr or "") + "\n" + (proc.stdout or "")
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", txt)
     if not m:
-        raise RuntimeError("No se pudo detectar duración del video")
+        raise RuntimeError("No se pudo detectar duraciÃƒÂ³n del video")
     h, mm, ss = int(m.group(1)), int(m.group(2)), float(m.group(3))
     return h * 3600 + mm * 60 + ss
 
@@ -2100,7 +2100,7 @@ def _probe_duration_seconds(media_path: Path) -> float:
 def _split_video_playable(input_path: Path, target_part_size_mb: int, out_dir: Path) -> list[Path]:
     if not shutil.which(FFMPEG_BIN) and not Path(FFMPEG_BIN).exists():
         raise RuntimeError(
-            "ffmpeg no encontrado. Instalá FFmpeg o configurá FFMPEG_BIN con la ruta completa."
+            "ffmpeg no encontrado. InstalÃƒÂ¡ FFmpeg o configurÃƒÂ¡ FFMPEG_BIN con la ruta completa."
         )
     size_bytes = input_path.stat().st_size
     target_bytes = int(target_part_size_mb) * 1024 * 1024
@@ -2109,7 +2109,7 @@ def _split_video_playable(input_path: Path, target_part_size_mb: int, out_dir: P
 
     duration = _probe_duration_seconds(input_path)
     if duration <= 0:
-        raise RuntimeError(f"No se pudo detectar duración de {input_path.name}")
+        raise RuntimeError(f"No se pudo detectar duraciÃƒÂ³n de {input_path.name}")
 
     estimated_parts = max(2, math.ceil(size_bytes / target_bytes))
     segment_time = max(1.0, duration / estimated_parts)
@@ -2150,7 +2150,7 @@ async def svx_create(
     svx_per_part: bool = Form(False),
 ):
     """
-    Recibe uno o más archivos de video via multipart form-data, los empaqueta
+    Recibe uno o mÃƒÂ¡s archivos de video via multipart form-data, los empaqueta
     en un .svx encriptado con AES-256-CTR y lo devuelve como descarga.
     """
     import tempfile, shutil
@@ -2247,7 +2247,7 @@ async def svx_create(
         out_name = saved_paths[0].stem + ".svx"
         out_path = tmp_dir / out_name
 
-        # Modo original: un único .svx con todas las entradas
+        # Modo original: un ÃƒÂºnico .svx con todas las entradas
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: _svx.pack([str(p) for p in pack_input_paths], password, str(out_path))
         )
@@ -2288,28 +2288,31 @@ async def svx_stream(
     request: Request,
     path: str = "",          # URL de MediaFire o path local
     password: str = "",
-    item: str = "",          # nombre del archivo dentro del .svx (vacío = primero)
+    item: str = "",          # nombre del archivo dentro del .svx (vacÃƒÂ­o = primero)
 ):
     """
     Reproduce un archivo dentro de un .svx de forma de streaming al vuelo.
     Soporta HTTP Range requests para seek del reproductor de video.
     """
     if not path:
-        raise HTTPException(400, "Se requiere el parámetro path")
+        raise HTTPException(400, "Se requiere el parÃ¡metro path")
+    # IMPORTANT: resolver enlaces pÃºblicos (ej. MediaFire /file) a URL utilizable
+    # antes de leer Ã­ndice/bytes; evita 400 al intentar abrir HTML como SVX.
+    resolved_path = _resolve_svx_input_url(path)
 
-    # ── Determinar si es remoto o local ─────────────────────────────────────
-    is_remote = path.startswith("http://") or path.startswith("https://")
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Determinar si es remoto o local Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    is_remote = resolved_path.startswith("http://") or resolved_path.startswith("https://")
 
     try:
         if is_remote:
-            reader = HTTPRangeFile(path)
+            reader = HTTPRangeFile(resolved_path)
             index, header_size, key, iv = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: _svx.read_index(None, password, http_range_reader=reader)
             )
         else:
             reader = None
             index, header_size, key, iv = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _svx.read_index(path, password)
+                None, lambda: _svx.read_index(resolved_path, password)
             )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -2334,7 +2337,7 @@ async def svx_stream(
                  "webm": "video/webm", "ts": "video/mp2t"}
     mime_type = mime_map.get(ext, "video/mp4")
 
-    # ── HTTP Range ───────────────────────────────────────────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ HTTP Range Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     range_header = request.headers.get("Range", "")
     byte_start, byte_end = 0, file_size - 1
     status_code = 200
@@ -2353,7 +2356,7 @@ async def svx_stream(
     content_length = byte_end - byte_start + 1
 
     # Generador de stream desencriptado
-    svx_ref = reader if is_remote else path
+    svx_ref = reader if is_remote else resolved_path
     gen = _svx.stream_entry(
         svx_ref, entry, password,
         header_size, key, iv,
@@ -2374,10 +2377,9 @@ async def svx_inspect(
     path: str = "",
     password: str = "",
 ):
-    """Devuelve el índice de un .svx (lista de archivos dentro)."""
+    """Devuelve el ÃƒÂ­ndice de un .svx (lista de archivos dentro)."""
     if not path:
         raise HTTPException(400, "Se requiere el parámetro path")
-    
     if "/api/svx/stream" in path:
         from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(path).query)
@@ -2409,9 +2411,9 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     password = payload.password or ""
     if not path:
         raise HTTPException(400, "Se requiere path")
-    # IMPORTANT: construir índice con la URL original.
+    # IMPORTANT: construir ÃƒÂ­ndice con la URL original.
     # _load_or_build_index_cache ya resuelve internamente y cachea de forma estable.
-    # Si pasamos una URL ya resuelta aquí, se puede re-resolver y volver inestable el arranque Pro.
+    # Si pasamos una URL ya resuelta aquÃƒÂ­, se puede re-resolver y volver inestable el arranque Pro.
     try:
         cache_payload = await asyncio.get_event_loop().run_in_executor(
             None, lambda: _load_or_build_index_cache(path, password)
@@ -2419,7 +2421,7 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(500, f"No se pudo construir el índice SVX: {e}")
+        raise HTTPException(500, f"No se pudo construir el ÃƒÂ­ndice SVX: {e}")
 
     resolved_path = _resolve_svx_input_url(path)
     session_id = uuid.uuid4().hex
@@ -2461,11 +2463,11 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
 async def svx_pro_session_manifest(session_id: str):
     row = PRO_URL_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro no encontrada")
     exp = _parse_iso(row.get("expires_at"))
     if exp and exp <= _utc_now():
         PRO_URL_SESSIONS.pop(session_id, None)
-        raise HTTPException(410, "Sesión Pro expirada")
+        raise HTTPException(410, "SesiÃƒÂ³n Pro expirada")
     return JSONResponse(row["manifest"])
 
 
@@ -2473,7 +2475,7 @@ async def svx_pro_session_manifest(session_id: str):
 async def svx_pro_session_chunk(session_id: str, entry: str, start: int = 0, end: int | None = None):
     row = PRO_URL_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro no encontrada")
     manifest = row["manifest"]
     entries = manifest.get("entries", [])
     entry_obj = next((e for e in entries if e["name"] == entry), None)
@@ -2511,7 +2513,7 @@ async def svx_pro_session_chunk(session_id: str, entry: str, start: int = 0, end
 async def svx_pro_session_stream(session_id: str, entry: str, request: Request):
     row = PRO_URL_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro no encontrada")
     return await svx_stream(
         request=request,
         path=row.get("resolved_path") or row["path"],
@@ -2535,8 +2537,8 @@ async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
         if not part_url:
             raise HTTPException(400, f"Parte #{idx+1} sin url")
         part_pwd = part.password if part.password is not None else payload.password
-        # IMPORTANT: mismo criterio que sesión Pro simple:
-        # indexar con URL original y resolver URL directa recién después para stream/chunks.
+        # IMPORTANT: mismo criterio que sesiÃƒÂ³n Pro simple:
+        # indexar con URL original y resolver URL directa reciÃƒÂ©n despuÃƒÂ©s para stream/chunks.
         try:
             cache_payload = await asyncio.get_event_loop().run_in_executor(
                 None, lambda p=part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
@@ -2549,7 +2551,7 @@ async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
 
         entries = cache_payload.get("entries", [])
         if not entries:
-            raise HTTPException(400, f"Parte #{idx+1} vacía")
+            raise HTTPException(400, f"Parte #{idx+1} vacÃƒÂ­a")
 
         chosen = entries[0]
         if part.item:
@@ -2613,11 +2615,11 @@ async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
 async def svx_pro_playlist_session_manifest(session_id: str):
     row = PRO_PLAYLIST_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro playlist no encontrada")
     exp = _parse_iso(row.get("expires_at"))
     if exp and exp <= _utc_now():
         PRO_PLAYLIST_SESSIONS.pop(session_id, None)
-        raise HTTPException(410, "Sesión Pro playlist expirada")
+        raise HTTPException(410, "SesiÃƒÂ³n Pro playlist expirada")
     return JSONResponse(row["manifest"])
 
 
@@ -2625,7 +2627,7 @@ async def svx_pro_playlist_session_manifest(session_id: str):
 async def svx_pro_playlist_session_chunk(session_id: str, part_index: int, entry: str, start: int = 0, end: int | None = None):
     row = PRO_PLAYLIST_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro playlist no encontrada")
     manifest = row["manifest"]
     parts = manifest.get("parts", [])
     if part_index < 0 or part_index >= len(parts):
@@ -2667,7 +2669,7 @@ async def svx_pro_playlist_session_chunk(session_id: str, part_index: int, entry
 async def svx_pro_playlist_session_stream(session_id: str, part_index: int, entry: str, request: Request):
     row = PRO_PLAYLIST_SESSIONS.get(session_id)
     if not row:
-        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n Pro playlist no encontrada")
     manifest = row["manifest"]
     parts = manifest.get("parts", [])
     if part_index < 0 or part_index >= len(parts):
@@ -2690,7 +2692,7 @@ def _playlist_stream_url(path: str, password: str, item: str) -> str:
 @app.post("/api/svx/playlist/session")
 async def svx_playlist_session_create(payload: PlaylistSessionInput):
     """
-    Crea una sesión de reproducción continua sobre múltiples archivos .svx.
+    Crea una sesiÃƒÂ³n de reproducciÃƒÂ³n continua sobre mÃƒÂºltiples archivos .svx.
     Base para autoplay transparente entre partes.
     """
     if not payload.parts:
@@ -2714,7 +2716,7 @@ async def svx_playlist_session_create(payload: PlaylistSessionInput):
 
         svx_entries = cache_payload.get("entries", [])
         if not svx_entries:
-            raise HTTPException(400, f"Parte #{idx+1} vacía")
+            raise HTTPException(400, f"Parte #{idx+1} vacÃƒÂ­a")
         chosen = None
         if part.item:
             chosen = next((e for e in svx_entries if e.get("name") == part.item), None)
@@ -2767,11 +2769,11 @@ async def svx_playlist_session_create(payload: PlaylistSessionInput):
 async def svx_playlist_session_manifest(session_id: str):
     sess = PLAYLIST_SESSIONS.get(session_id)
     if not sess:
-        raise HTTPException(404, "Sesión de playlist no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n de playlist no encontrada")
     exp = _parse_iso(sess.get("expires_at"))
     if exp and exp <= _utc_now():
         PLAYLIST_SESSIONS.pop(session_id, None)
-        raise HTTPException(410, "Sesión de playlist expirada")
+        raise HTTPException(410, "SesiÃƒÂ³n de playlist expirada")
     return JSONResponse({
         "session_id": session_id,
         "title": sess.get("title", "Playlist SVX"),
@@ -2787,7 +2789,7 @@ async def svx_playlist_session_manifest(session_id: str):
 async def svx_playlist_session_part(session_id: str, part_index: int):
     sess = PLAYLIST_SESSIONS.get(session_id)
     if not sess:
-        raise HTTPException(404, "Sesión de playlist no encontrada")
+        raise HTTPException(404, "SesiÃƒÂ³n de playlist no encontrada")
     entries = sess.get("entries", [])
     if part_index < 0 or part_index >= len(entries):
         raise HTTPException(404, "Parte no encontrada")
@@ -2808,7 +2810,7 @@ async def svx_playlist_session_part(session_id: str, part_index: int):
 
 @app.post("/api/tokens/register")
 async def token_register(payload: TokenRegisterInput, request: Request):
-    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
+    raise HTTPException(410, "MÃƒÂ³dulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     token = _token_from_input(payload.token or "")
     expires_at = _iso_utc(_utc_now() + timedelta(hours=payload.expires_in_hours))
@@ -2851,7 +2853,7 @@ async def token_register(payload: TokenRegisterInput, request: Request):
 
 @app.post("/api/tokens/{token}/revoke")
 async def token_revoke(token: str, request: Request):
-    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
+    raise HTTPException(410, "MÃƒÂ³dulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     now_s = _iso_utc(_utc_now())
     with DB_LOCK:
@@ -2873,7 +2875,7 @@ async def token_revoke(token: str, request: Request):
 
 @app.patch("/api/tokens/{token}/sources")
 async def token_sources_patch(token: str, payload: TokenSourcesPatchInput, request: Request):
-    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
+    raise HTTPException(410, "MÃƒÂ³dulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     now_s = _iso_utc(_utc_now())
     with DB_LOCK:
@@ -2903,7 +2905,7 @@ async def token_sources_patch(token: str, payload: TokenSourcesPatchInput, reque
 
 @app.get("/api/tokens/{token}")
 async def token_get(token: str, request: Request):
-    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
+    raise HTTPException(410, "MÃƒÂ³dulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     with DB_LOCK:
         conn = _db_conn()
@@ -2973,7 +2975,7 @@ async def play_session_create(token: str, payload: PlaySessionInput):
         except ValueError as e:
             raise HTTPException(400, str(e))
         except Exception as e:
-            raise HTTPException(500, f"No se pudo construir el índice SVX: {e}")
+            raise HTTPException(500, f"No se pudo construir el ÃƒÂ­ndice SVX: {e}")
 
         entries = manifest_cache["entries"]
         for e in entries:
@@ -3195,4 +3197,5 @@ async def play_session_stream(session_id: str, entry: str, request: Request):
             except Exception as e:
                 _record_source_health(int(alt["id"]), ok=False, error=str(e))
                 continue
-        raise HTTPException(503, f"Fallback stream falló: {first_err}")
+        raise HTTPException(503, f"Fallback stream fallÃƒÂ³: {first_err}")
+
