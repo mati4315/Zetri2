@@ -143,6 +143,7 @@
       <div style="font-size:1.35rem;font-weight:800">SVX Studio Pro</div>
       <div class="sub">Tokenización, WebCrypto y fallback inteligente</div>
     </div>
+    <a href="/library" style="margin-left:auto;text-decoration:none" class="btn btn-primary">🎞 Biblioteca</a>
   </div>
 
   <div class="tabs">
@@ -1381,6 +1382,41 @@
     setPlayStatus(entries.length > 1 ? `Reproduciendo playlist (${entries.length} partes).` : 'Reproduciendo desde modo legacy.', 100);
     document.getElementById('playCancelBtn').style.display = 'none';
   }
+
+  async function applyLibraryAutoplayFromStorage() {
+    let raw = '';
+    try { raw = localStorage.getItem('svx_library_autoplay') || ''; } catch (_) {}
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw);
+      if (!payload || typeof payload !== 'object') return;
+      switchTab('play');
+      const pwd = String(payload.password || '');
+      const mode = String(payload.mode || '');
+      document.getElementById('playPwd').value = pwd;
+      if (mode === 'single') {
+        document.getElementById('playUrl').value = String(payload.url || '');
+        document.getElementById('playlistJsonText').value = '';
+      } else if (mode === 'playlist') {
+        document.getElementById('playUrl').value = '';
+        document.getElementById('playlistJsonText').value = JSON.stringify(payload.playlist_json || {}, null, 2);
+      } else {
+        return;
+      }
+      setPill('Biblioteca', 'ok');
+      setPlayStatus('Cargando desde Biblioteca...', 15);
+      setTimeout(() => { startTokenPlayback(); }, 120);
+    } catch (e) {
+      setPill('Error', 'warn');
+      setPlayStatus('No se pudo cargar autoplay de Biblioteca.', 0);
+    } finally {
+      try { localStorage.removeItem('svx_library_autoplay'); } catch (_) {}
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    applyLibraryAutoplayFromStorage();
+  });
 </script>
 </body>
 </html>

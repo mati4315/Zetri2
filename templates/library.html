@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Biblioteca SVX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0a0f1e; --card:rgba(255,255,255,.055); --border:rgba(255,255,255,.12); --text:#e2e8f0; --muted:#94a3b8; --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:"Plus Jakarta Sans",sans-serif; color:var(--text); background:radial-gradient(1200px 650px at 0% -10%,rgba(6,182,212,.15),transparent 60%),var(--bg); min-height:100vh; }
+    .wrap { max-width:1100px; margin:0 auto; padding:28px 16px 42px; }
+    .head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+    .logo { width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#06b6d4,#22c55e); color:#052e16; display:flex; align-items:center; justify-content:center; font-weight:800; }
+    .sub { color:var(--muted); font-size:.86rem; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:12px; backdrop-filter:blur(10px); }
+    .card-title { font-weight:800; margin-bottom:8px; }
+    label { display:block; margin:8px 0 6px; color:var(--muted); font-size:.82rem; }
+    input, select, textarea { width:100%; border:1px solid var(--border); border-radius:10px; background:rgba(0,0,0,.26); color:var(--text); padding:10px 12px; font-family:"JetBrains Mono",monospace; font-size:.84rem; }
+    textarea { min-height:130px; }
+    .row { display:flex; gap:8px; }
+    .btn { border:none; border-radius:10px; padding:10px 12px; font-weight:700; cursor:pointer; }
+    .btn-primary { background:linear-gradient(135deg,#06b6d4,#0891b2); color:#ecfeff; }
+    .btn-ok { background:linear-gradient(135deg,#22c55e,#15803d); color:#ecfdf5; }
+    .btn-danger { background:linear-gradient(135deg,#ef4444,#b91c1c); color:#fff; }
+    .btn-ghost { border:1px solid var(--border); background:rgba(255,255,255,.05); color:var(--text); text-decoration:none; display:inline-flex; align-items:center; }
+    .status { margin-top:8px; font-size:.83rem; color:var(--muted); }
+    .list { display:flex; flex-direction:column; gap:8px; }
+    .item { border:1px solid var(--border); border-radius:10px; padding:10px; background:rgba(0,0,0,.2); display:flex; gap:10px; align-items:center; }
+    .meta { flex:1; min-width:0; }
+    .title { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .small { color:var(--muted); font-size:.76rem; margin-top:2px; }
+    .hidden { display:none; }
+    @media (max-width:840px){ .row{flex-direction:column;} .item{flex-direction:column;align-items:stretch;} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="logo">Lb</div>
+      <div>
+        <div style="font-size:1.28rem;font-weight:800">Biblioteca SVX</div>
+        <div class="sub">Guardá películas y reproducí con un clic</div>
+      </div>
+      <a class="btn btn-ghost" href="/" style="margin-left:auto">⬅ Volver al reproductor</a>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Guardar película</div>
+      <label>Título</label>
+      <input id="title" type="text" placeholder="Ej: JPSE Hernández">
+      <label>Tipo</label>
+      <select id="kind">
+        <option value="single_url">URL .SVX</option>
+        <option value="playlist_json">Playlist JSON</option>
+      </select>
+      <div id="singleWrap">
+        <label>URL .SVX</label>
+        <input id="singleUrl" type="text" placeholder="https://www.mediafire.com/file/.../archivo.svx/file">
+      </div>
+      <div id="playlistWrap" class="hidden">
+        <label>Playlist JSON</label>
+        <textarea id="playlistJson" placeholder='{"version":1,"title":"...","parts":[{"order":1,"url":"https://..."}]}'></textarea>
+      </div>
+      <label>Contraseña</label>
+      <input id="password" type="password" placeholder="Contraseña del .svx">
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-ok" onclick="saveItem()">💾 Guardar</button>
+        <button class="btn btn-ghost" onclick="loadItems()">🔄 Actualizar lista</button>
+      </div>
+      <div id="saveStatus" class="status">Listo.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Películas guardadas</div>
+      <div id="count" class="small">0 elementos</div>
+      <div id="list" class="list" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <script>
+    const kindEl = document.getElementById('kind');
+    const singleWrap = document.getElementById('singleWrap');
+    const playlistWrap = document.getElementById('playlistWrap');
+    const saveStatus = document.getElementById('saveStatus');
+    const listEl = document.getElementById('list');
+    const countEl = document.getElementById('count');
+
+    function setSaveStatus(msg) { saveStatus.textContent = msg; }
+    function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m])); }
+
+    function renderKind() {
+      const kind = kindEl.value;
+      singleWrap.classList.toggle('hidden', kind !== 'single_url');
+      playlistWrap.classList.toggle('hidden', kind !== 'playlist_json');
+    }
+
+    function validatePlaylistJson(raw) {
+      let obj = null;
+      try { obj = JSON.parse(raw); } catch { throw new Error('JSON inválido'); }
+      if (!obj || obj.version !== 1) throw new Error('Playlist JSON: version debe ser 1');
+      if (!Array.isArray(obj.parts) || !obj.parts.length) throw new Error('Playlist JSON: parts[] requerido');
+      obj.parts.forEach((p, i) => {
+        const u = String((p && p.url) || '').trim();
+        if (!u || (!u.startsWith('http://') && !u.startsWith('https://'))) throw new Error(`Playlist JSON: parts[${i}].url inválido`);
+      });
+      return obj;
+    }
+
+    async function saveItem() {
+      try {
+        const title = document.getElementById('title').value.trim();
+        const kind = kindEl.value;
+        const password = document.getElementById('password').value;
+        if (!title) throw new Error('Título requerido');
+        let payload = null;
+        if (kind === 'single_url') {
+          const url = document.getElementById('singleUrl').value.trim();
+          if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) throw new Error('URL inválida');
+          payload = { url };
+        } else {
+          payload = validatePlaylistJson(document.getElementById('playlistJson').value.trim());
+        }
+        const res = await fetch('/api/library/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, kind, payload, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'No se pudo guardar');
+        setSaveStatus('Guardado correctamente');
+        await loadItems();
+      } catch (e) {
+        setSaveStatus('Error: ' + (e.message || e));
+      }
+    }
+
+    async function deleteItem(id) {
+      if (!confirm('¿Eliminar esta película guardada?')) return;
+      const res = await fetch(`/api/library/items/${id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.detail || 'No se pudo eliminar');
+        return;
+      }
+      loadItems();
+    }
+
+    async function playItem(id) {
+      try {
+        const res = await fetch(`/api/library/items/${id}/start`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'No se pudo reproducir');
+        localStorage.setItem('svx_library_autoplay', JSON.stringify(data));
+        window.location.href = '/';
+      } catch (e) {
+        alert('No se pudo reproducir: ' + (e.message || e));
+      }
+    }
+
+    async function loadItems() {
+      const res = await fetch('/api/library/items');
+      const data = await res.json();
+      const items = (data && data.items) ? data.items : [];
+      countEl.textContent = `${items.length} elemento(s)`;
+      if (!items.length) {
+        listEl.innerHTML = '<div class="small">No hay películas guardadas todavía.</div>';
+        return;
+      }
+      listEl.innerHTML = items.map((it) => `
+        <div class="item">
+          <div class="meta">
+            <div class="title">${escapeHtml(it.title)}</div>
+            <div class="small">Tipo: ${escapeHtml(it.kind)} · Partes: ${it.parts_count || 1}</div>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="playItem(${it.id})">▶ Reproducir</button>
+            <button class="btn btn-danger" onclick="deleteItem(${it.id})">🗑 Eliminar</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    kindEl.addEventListener('change', renderKind);
+    renderKind();
+    loadItems();
+  </script>
+</body>
+</html>
+

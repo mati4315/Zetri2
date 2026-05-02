@@ -391,10 +391,22 @@ def _init_svx_core_db() -> None:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS saved_library_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    password_enc TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_played_at TEXT
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_video_sources_video_id ON video_sources(video_id);
                 CREATE INDEX IF NOT EXISTS idx_video_sources_priority ON video_sources(video_id, priority, active);
                 CREATE INDEX IF NOT EXISTS idx_play_sessions_token ON play_sessions(token, active);
                 CREATE INDEX IF NOT EXISTS idx_index_cache_lookup ON svx_index_cache(source_hash, password_hash);
+                CREATE INDEX IF NOT EXISTS idx_library_items_updated_at ON saved_library_items(updated_at DESC);
                 """
             )
             conn.commit()
@@ -512,6 +524,92 @@ class SvxProSessionInput(BaseModel):
     path: str = Field(min_length=1)
     password: str = ""
     mode: str | None = "webcrypto"
+
+
+class LibraryItemCreateInput(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    kind: str = Field(min_length=1)
+    payload: dict
+    password: str = ""
+
+
+class LibraryItemUpdateInput(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    payload: dict | None = None
+    password: str | None = None
+
+
+def _library_secret_key() -> bytes:
+    raw = (os.getenv("SVX_LIBRARY_SECRET", "") or "").strip()
+    if not raw:
+        raw = f"local::{SVX_CORE_DB_FILE.resolve()}::{os.getenv('COMPUTERNAME', '')}"
+    return hashlib.sha256(raw.encode("utf-8")).digest()
+
+
+def _library_encrypt_password(password: str) -> str:
+    plain = (password or "").encode("utf-8")
+    if not plain:
+        return ""
+    key = _library_secret_key()
+    out = bytes([b ^ key[i % len(key)] for i, b in enumerate(plain)])
+    return base64.b64encode(out).decode("ascii")
+
+
+def _library_decrypt_password(password_enc: str) -> str:
+    enc = (password_enc or "").strip()
+    if not enc:
+        return ""
+    try:
+        data = base64.b64decode(enc.encode("ascii"))
+        key = _library_secret_key()
+        out = bytes([b ^ key[i % len(key)] for i, b in enumerate(data)])
+        return out.decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def _is_http_url(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://")
+
+
+def _validate_library_payload(kind: str, payload: dict) -> dict:
+    k = (kind or "").strip()
+    if k not in {"single_url", "playlist_json"}:
+        raise HTTPException(400, "kind inválido (single_url | playlist_json)")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "payload inválido")
+    if k == "single_url":
+        url = str(payload.get("url") or "").strip()
+        if not url or not _is_http_url(url):
+            raise HTTPException(400, "URL inválida")
+        return {"url": url}
+
+    version = payload.get("version")
+    parts = payload.get("parts")
+    if version != 1:
+        raise HTTPException(400, "Playlist JSON: version debe ser 1")
+    if not isinstance(parts, list) or not parts:
+        raise HTTPException(400, "Playlist JSON: parts[] requerido")
+    norm_parts = []
+    for i, p in enumerate(parts):
+        if not isinstance(p, dict):
+            raise HTTPException(400, f"Playlist JSON: parts[{i}] inválido")
+        url = str(p.get("url") or "").strip()
+        if not url or not _is_http_url(url):
+            raise HTTPException(400, f"Playlist JSON: parts[{i}].url inválido")
+        norm_parts.append({
+            "order": int(p.get("order") or (i + 1)),
+            "url": url,
+            "label": str(p.get("label") or f"Parte {i + 1}"),
+        })
+    norm_parts.sort(key=lambda x: int(x.get("order", 0)))
+    return {
+        "version": 1,
+        "title": str(payload.get("title") or "Playlist SVX"),
+        "created_at": str(payload.get("created_at") or _iso_utc(_utc_now())),
+        "parts": norm_parts,
+    }
 
 
 def _require_admin(request: Request) -> None:
@@ -2056,6 +2154,13 @@ async def svx_dashboard(request: Request):
         return HTMLResponse(f.read())
 
 
+@app.get("/library")
+async def svx_library_page(request: Request):
+    tpl_path = Path(__file__).parent / "templates" / "library.html"
+    with open(tpl_path, encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
 def _probe_duration_seconds(media_path: Path) -> float:
     ffprobe_ok = bool(shutil.which(FFPROBE_BIN) or Path(FFPROBE_BIN).exists())
     if ffprobe_ok:
@@ -2832,6 +2937,161 @@ async def svx_playlist_session_m3u(session_id: str, request: Request):
             lines.append(stream_url)
     content = "\n".join(lines) + "\n"
     return Response(content=content, media_type="audio/x-mpegurl")
+
+
+@app.get("/api/library/items")
+async def library_items_list():
+    with DB_LOCK:
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, title, kind, payload_json, created_at, updated_at, last_played_at
+                FROM saved_library_items
+                ORDER BY updated_at DESC, id DESC
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+    items = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        parts_count = len(payload.get("parts", [])) if isinstance(payload, dict) else 0
+        items.append({
+            "id": int(r["id"]),
+            "title": r["title"],
+            "kind": r["kind"],
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+            "last_played_at": r["last_played_at"],
+            "parts_count": parts_count if r["kind"] == "playlist_json" else 1,
+        })
+    return JSONResponse({"items": items, "count": len(items)})
+
+
+@app.post("/api/library/items")
+async def library_items_create(payload: LibraryItemCreateInput):
+    now = _iso_utc(_utc_now())
+    norm_payload = _validate_library_payload(payload.kind, payload.payload or {})
+    password_enc = _library_encrypt_password(payload.password or "")
+    with DB_LOCK:
+        conn = _db_conn()
+        try:
+            conn.execute(
+                """
+                INSERT INTO saved_library_items(title, kind, payload_json, password_enc, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.title.strip(),
+                    payload.kind.strip(),
+                    json.dumps(norm_payload, ensure_ascii=False, separators=(",", ":")),
+                    password_enc,
+                    now,
+                    now,
+                )
+            )
+            row = conn.execute("SELECT last_insert_rowid() AS id").fetchone()
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "id": int(row["id"]), "message": "Guardado correctamente"})
+
+
+@app.get("/api/library/items/{item_id}")
+async def library_items_get(item_id: int):
+    with DB_LOCK:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT id, title, kind, payload_json, password_enc, created_at, updated_at, last_played_at
+                FROM saved_library_items WHERE id = ?
+                """,
+                (item_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+    if not row:
+        raise HTTPException(404, "Elemento no encontrado")
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except Exception:
+        payload = {}
+    return JSONResponse({
+        "id": int(row["id"]),
+        "title": row["title"],
+        "kind": row["kind"],
+        "payload": payload,
+        "password": _library_decrypt_password(row["password_enc"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "last_played_at": row["last_played_at"],
+    })
+
+
+@app.delete("/api/library/items/{item_id}")
+async def library_items_delete(item_id: int):
+    with DB_LOCK:
+        conn = _db_conn()
+        try:
+            cur = conn.execute("DELETE FROM saved_library_items WHERE id = ?", (item_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    if cur.rowcount <= 0:
+        raise HTTPException(404, "Elemento no encontrado")
+    return JSONResponse({"ok": True, "message": "Eliminado"})
+
+
+@app.post("/api/library/items/{item_id}/start")
+async def library_items_start(item_id: int):
+    now = _iso_utc(_utc_now())
+    with DB_LOCK:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, title, kind, payload_json, password_enc FROM saved_library_items WHERE id = ?",
+                (item_id,)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE saved_library_items SET last_played_at = ?, updated_at = ? WHERE id = ?",
+                    (now, now, item_id)
+                )
+                conn.commit()
+        finally:
+            conn.close()
+    if not row:
+        raise HTTPException(404, "Elemento no encontrado")
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except Exception:
+        payload = {}
+    password = _library_decrypt_password(row["password_enc"])
+    kind = (row["kind"] or "").strip()
+    if kind == "single_url":
+        return JSONResponse({
+            "ok": True,
+            "id": int(row["id"]),
+            "title": row["title"],
+            "mode": "single",
+            "url": str(payload.get("url") or ""),
+            "password": password,
+        })
+    if kind == "playlist_json":
+        return JSONResponse({
+            "ok": True,
+            "id": int(row["id"]),
+            "title": row["title"],
+            "mode": "playlist",
+            "playlist_json": payload,
+            "password": password,
+        })
+    raise HTTPException(400, "kind inválido")
 
 
 @app.post("/api/tokens/register")
