@@ -129,6 +129,7 @@ VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.webm', '.ts', '.m2ts', '.mov', '.flv'}
 ARCHIVE_DOWNLOADS = {}
 ARCHIVE_CANCEL_FLAGS = {}
 PLAYLIST_SESSIONS = {}
+PRO_URL_SESSIONS = {}
 DB_FILE = Path("videos.json")
 if not DB_FILE.exists():
     with open(DB_FILE, "w") as f:
@@ -503,6 +504,12 @@ class PlaylistSessionInput(BaseModel):
     parts: list[PlaylistPartInput] = Field(min_items=1)
     password: str = ""
     title: str | None = None
+    mode: str | None = "webcrypto"
+
+
+class SvxProSessionInput(BaseModel):
+    path: str = Field(min_length=1)
+    password: str = ""
     mode: str | None = "webcrypto"
 
 
@@ -2357,6 +2364,118 @@ async def svx_inspect(
     })
 
 
+@app.post("/api/svx/pro/session")
+async def svx_pro_session_create(payload: SvxProSessionInput):
+    path = (payload.path or "").strip()
+    password = payload.password or ""
+    if not path:
+        raise HTTPException(400, "Se requiere path")
+    try:
+        cache_payload = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _load_or_build_index_cache(path, password)
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"No se pudo construir el índice SVX: {e}")
+
+    session_id = uuid.uuid4().hex
+    expires_at = _utc_now() + timedelta(minutes=SESSION_TTL_MINUTES)
+    entries = []
+    for e in cache_payload["entries"]:
+        name = e["name"]
+        entries.append({
+            **e,
+            "chunk_url": f"/api/svx/pro/session/{session_id}/chunk/{quote(name)}",
+            "fallback_stream_url": f"/api/svx/pro/session/{session_id}/stream/{quote(name)}",
+        })
+
+    manifest = {
+        "session_id": session_id,
+        "mode": (payload.mode or "webcrypto").strip().lower(),
+        "expires_at": _iso_utc(expires_at),
+        "fallback_ready": True,
+        "kdf_iterations": int(_svx.KDF_ITERATIONS),
+        "crypto": {
+            "algorithm": "AES-CTR",
+            "salt_b64": cache_payload["salt_b64"],
+            "iv_b64": cache_payload["iv_b64"],
+            "index_len": int(cache_payload["index_len"]),
+        },
+        "entries": entries,
+    }
+    PRO_URL_SESSIONS[session_id] = {
+        "path": path,
+        "password": password,
+        "manifest": manifest,
+        "expires_at": _iso_utc(expires_at),
+    }
+    return JSONResponse(manifest)
+
+
+@app.get("/api/svx/pro/session/{session_id}/manifest")
+async def svx_pro_session_manifest(session_id: str):
+    row = PRO_URL_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro no encontrada")
+    exp = _parse_iso(row.get("expires_at"))
+    if exp and exp <= _utc_now():
+        PRO_URL_SESSIONS.pop(session_id, None)
+        raise HTTPException(410, "Sesión Pro expirada")
+    return JSONResponse(row["manifest"])
+
+
+@app.get("/api/svx/pro/session/{session_id}/chunk/{entry:path}")
+async def svx_pro_session_chunk(session_id: str, entry: str, start: int = 0, end: int | None = None):
+    row = PRO_URL_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro no encontrada")
+    manifest = row["manifest"]
+    entries = manifest.get("entries", [])
+    entry_obj = next((e for e in entries if e["name"] == entry), None)
+    if not entry_obj:
+        raise HTTPException(404, f"Entrada no encontrada: {entry}")
+
+    entry_size = int(entry_obj["size"])
+    if start < 0:
+        start = 0
+    if end is None:
+        end = min(entry_size - 1, start + PLAY_CHUNK_DEFAULT_SIZE - 1)
+    end = min(end, entry_size - 1)
+    if start > end:
+        raise HTTPException(416, "Rango invalido")
+
+    header_size = int(manifest["crypto"]["index_len"]) + _svx.HEADER_BASE
+    file_start = header_size + int(entry_obj["offset"]) + start
+    file_end = header_size + int(entry_obj["offset"]) + end
+    data = _read_range_bytes(row["path"], file_start, file_end)
+    if not data:
+        raise HTTPException(503, "Chunk vacio")
+
+    ks_offset = int(manifest["crypto"]["index_len"]) + int(entry_obj["offset"]) + start
+    headers = {
+        "Content-Range": f"bytes {start}-{start + len(data) - 1}/{entry_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(len(data)),
+        "X-SVX-Keystream-Offset": str(ks_offset),
+        "X-SVX-Entry-Size": str(entry_size),
+    }
+    return Response(content=data, media_type="application/octet-stream", headers=headers, status_code=206)
+
+
+@app.get("/api/svx/pro/session/{session_id}/stream/{entry:path}")
+async def svx_pro_session_stream(session_id: str, entry: str, request: Request):
+    row = PRO_URL_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro no encontrada")
+    return await svx_stream(
+        request=request,
+        path=row["path"],
+        password=row["password"],
+        item=entry,
+    )
+
+
 def _playlist_stream_url(path: str, password: str, item: str) -> str:
     return f"/api/svx/stream?path={quote(path)}&password={quote(password)}&item={quote(item)}"
 
@@ -2482,6 +2601,7 @@ async def svx_playlist_session_part(session_id: str, part_index: int):
 
 @app.post("/api/tokens/register")
 async def token_register(payload: TokenRegisterInput, request: Request):
+    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     token = _token_from_input(payload.token or "")
     expires_at = _iso_utc(_utc_now() + timedelta(hours=payload.expires_in_hours))
@@ -2524,6 +2644,7 @@ async def token_register(payload: TokenRegisterInput, request: Request):
 
 @app.post("/api/tokens/{token}/revoke")
 async def token_revoke(token: str, request: Request):
+    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     now_s = _iso_utc(_utc_now())
     with DB_LOCK:
@@ -2545,6 +2666,7 @@ async def token_revoke(token: str, request: Request):
 
 @app.patch("/api/tokens/{token}/sources")
 async def token_sources_patch(token: str, payload: TokenSourcesPatchInput, request: Request):
+    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     now_s = _iso_utc(_utc_now())
     with DB_LOCK:
@@ -2574,6 +2696,7 @@ async def token_sources_patch(token: str, payload: TokenSourcesPatchInput, reque
 
 @app.get("/api/tokens/{token}")
 async def token_get(token: str, request: Request):
+    raise HTTPException(410, "Módulo tokens deshabilitado. Usar /api/svx/pro/session con URL.")
     _require_admin(request)
     with DB_LOCK:
         conn = _db_conn()
@@ -2613,6 +2736,7 @@ async def token_get(token: str, request: Request):
 
 @app.post("/api/play/{token}/session")
 async def play_session_create(token: str, payload: PlaySessionInput):
+    raise HTTPException(410, "Endpoint legacy deshabilitado. Usar /api/svx/pro/session.")
     try:
         with DB_LOCK:
             conn = _db_conn()
@@ -2713,6 +2837,7 @@ async def play_session_create(token: str, payload: PlaySessionInput):
 
 @app.get("/api/play/session/{session_id}/manifest")
 async def play_session_manifest(session_id: str):
+    raise HTTPException(410, "Endpoint legacy deshabilitado. Usar /api/svx/pro/session/{id}/manifest.")
     row = _load_active_session(session_id)
     manifest = json.loads(row["manifest_json"])
     manifest["session_id"] = session_id
@@ -2737,6 +2862,7 @@ def _try_chunk_from_source(path_or_url: str, header_size: int, entry_obj: dict, 
 
 @app.get("/api/play/session/{session_id}/chunk/{entry:path}")
 async def play_session_chunk(session_id: str, entry: str, start: int = 0, end: int | None = None):
+    raise HTTPException(410, "Endpoint legacy deshabilitado. Usar /api/svx/pro/session/{id}/chunk/{entry}.")
     row = _load_active_session(session_id)
     manifest = json.loads(row["manifest_json"])
     entries = manifest.get("entries", [])
@@ -2828,6 +2954,7 @@ async def play_session_chunk(session_id: str, entry: str, start: int = 0, end: i
 
 @app.get("/api/play/session/{session_id}/stream/{entry:path}")
 async def play_session_stream(session_id: str, entry: str, request: Request):
+    raise HTTPException(410, "Endpoint legacy deshabilitado. Usar /api/svx/pro/session/{id}/stream/{entry}.")
     row = _load_active_session(session_id)
     try:
         return await svx_stream(

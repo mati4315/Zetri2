@@ -183,9 +183,7 @@
 
   <div id="tab-play" class="tab-content">
     <div class="card">
-      <div class="card-title">SVX Pro por Token</div>
-      <label>Token</label>
-      <input type="text" id="playToken" placeholder="svx-7788abcd">
+      <div class="card-title">SVX Pro por URL</div>
       <label>Contraseña</label>
       <input type="password" id="playPwd" placeholder="Contraseña del archivo .svx">
       <label>Prefetch Pro</label>
@@ -202,7 +200,7 @@
         <button class="btn btn-primary" style="flex:1;margin:0; background:linear-gradient(90deg,#f97316,#ea580c)" onclick="copyVlcBridgeUrl()">📺 Puente VLC</button>
         <button class="btn btn-cancel" id="playCancelBtn" style="display:none;flex:0 0 auto;margin:0" onclick="cancelLoad()">■ Cancelar</button>
       </div>
-      <label>URL Legacy (opcional)</label>
+      <label>URL .SVX</label>
       <input type="text" id="playUrl" placeholder="https://www.mediafire.com/file/.../archivo.svx/file">
       <div class="tip">Playlist: pegá múltiples URLs .svx separadas por salto de línea para reproducción continua.</div>
       <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
@@ -754,11 +752,11 @@
   }
 
   async function startTokenPlayback() {
-    const token = document.getElementById('playToken').value.trim();
+    const url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value.trim();
-    if (!token) {
+    if (!url) {
       setPill('Error', 'warn');
-      setPlayStatus('Ingresa un token SVX.', 0);
+      setPlayStatus('Ingresa una URL .svx.', 0);
       return;
     }
 
@@ -771,21 +769,21 @@
       setPill('Iniciando...', 'warn');
       setPlayStatus('Creando sesión segura...', 10);
 
-      const sres = await fetch(`/api/play/${encodeURIComponent(token)}/session`, {
+      const sres = await fetch(`/api/svx/pro/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd, mode: 'webcrypto' }),
+        body: JSON.stringify({ path: url, password: pwd, mode: 'webcrypto' }),
         signal,
       });
       const session = await sres.json();
       if (!sres.ok) {
-        await logClient('pro_session_error', session.detail || 'session create failed', { token });
+        await logClient('pro_session_error', session.detail || 'session create failed', { url });
         throw new Error(session.detail || 'No se pudo crear sesión');
       }
       activeSessionId = session.session_id;
 
       setPlayStatus('Cargando manifest...', 25);
-      const mres = await fetch(`/api/play/session/${encodeURIComponent(activeSessionId)}/manifest`, { signal });
+      const mres = await fetch(`/api/svx/pro/session/${encodeURIComponent(activeSessionId)}/manifest`, { signal });
       const manifest = await mres.json();
       if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest');
       activeManifest = manifest;
