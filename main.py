@@ -130,6 +130,7 @@ ARCHIVE_DOWNLOADS = {}
 ARCHIVE_CANCEL_FLAGS = {}
 PLAYLIST_SESSIONS = {}
 PRO_URL_SESSIONS = {}
+PRO_PLAYLIST_SESSIONS = {}
 DB_FILE = Path("videos.json")
 if not DB_FILE.exists():
     with open(DB_FILE, "w") as f:
@@ -494,7 +495,7 @@ class PlaySessionInput(BaseModel):
 
 
 class PlaylistPartInput(BaseModel):
-    path: str = Field(min_length=1)
+    url: str = Field(min_length=1)
     password: str | None = None
     item: str | None = None
     label: str | None = None
@@ -701,6 +702,35 @@ def _read_header_meta(path_or_url: str) -> tuple[bytes, bytes, int]:
     return salt, iv, index_len
 
 
+def _normalize_mediafire_svx_url(url: str) -> str:
+    u = (url or "").strip()
+    if not u:
+        return u
+    low = u.lower()
+    if "mediafire.com/file/" in low and not low.rstrip("/").endswith("/file"):
+        return u.rstrip("/") + "/file"
+    return u
+
+
+def _resolve_svx_input_url(source_url: str) -> str:
+    """
+    Normaliza y resuelve URLs de entrada para lectura SVX remota.
+    - Para MediaFire, intenta obtener URL de descarga directa.
+    - Si falla, mantiene la URL original normalizada.
+    """
+    u = _normalize_mediafire_svx_url(source_url)
+    if "mediafire.com" not in u.lower():
+        return u
+    try:
+        info = get_mediafire_info(u)
+        direct = (info.get("download_url") or "").strip()
+        if direct:
+            return direct
+    except Exception:
+        pass
+    return u
+
+
 def _load_or_build_index_cache(source_url: str, password: str) -> dict:
     source_hash = _source_fingerprint(source_url)
     password_hash = _sha256_text(password)
@@ -738,13 +768,14 @@ def _load_or_build_index_cache(source_url: str, password: str) -> dict:
             except Exception:
                 pass
 
-    is_remote = source_url.startswith(("http://", "https://"))
+    source_url_resolved = _resolve_svx_input_url(source_url)
+    is_remote = source_url_resolved.startswith(("http://", "https://"))
     if is_remote:
-        reader = HTTPRangeFile(source_url)
+        reader = HTTPRangeFile(source_url_resolved)
         index, header_size, _key, _iv = _svx.read_index(None, password, http_range_reader=reader)
     else:
-        index, header_size, _key, _iv = _svx.read_index(source_url, password)
-    salt, iv, index_len = _read_header_meta(source_url)
+        index, header_size, _key, _iv = _svx.read_index(source_url_resolved, password)
+    salt, iv, index_len = _read_header_meta(source_url_resolved)
     index_json = json.dumps(index, ensure_ascii=False, separators=(",", ":"))
     salt_b64 = base64.b64encode(salt).decode("ascii")
     iv_b64 = base64.b64encode(iv).decode("ascii")
@@ -2171,7 +2202,7 @@ async def svx_create(
                 "parts": [
                     {
                         "order": i + 1,
-                        "filename": p.name,
+                        "url": p.name,
                         "label": f"Parte {i + 1}",
                     }
                     for i, p in enumerate(svx_paths)
@@ -2370,9 +2401,10 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     password = payload.password or ""
     if not path:
         raise HTTPException(400, "Se requiere path")
+    resolved_path = _resolve_svx_input_url(path)
     try:
         cache_payload = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _load_or_build_index_cache(path, password)
+            None, lambda: _load_or_build_index_cache(resolved_path, password)
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -2406,6 +2438,7 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     }
     PRO_URL_SESSIONS[session_id] = {
         "path": path,
+        "resolved_path": resolved_path,
         "password": password,
         "manifest": manifest,
         "expires_at": _iso_utc(expires_at),
@@ -2448,7 +2481,7 @@ async def svx_pro_session_chunk(session_id: str, entry: str, start: int = 0, end
     header_size = int(manifest["crypto"]["index_len"]) + _svx.HEADER_BASE
     file_start = header_size + int(entry_obj["offset"]) + start
     file_end = header_size + int(entry_obj["offset"]) + end
-    data = _read_range_bytes(row["path"], file_start, file_end)
+    data = _read_range_bytes(row.get("resolved_path") or row["path"], file_start, file_end)
     if not data:
         raise HTTPException(503, "Chunk vacio")
 
@@ -2470,8 +2503,170 @@ async def svx_pro_session_stream(session_id: str, entry: str, request: Request):
         raise HTTPException(404, "Sesión Pro no encontrada")
     return await svx_stream(
         request=request,
-        path=row["path"],
+        path=row.get("resolved_path") or row["path"],
         password=row["password"],
+        item=entry,
+    )
+
+
+@app.post("/api/svx/pro/playlist/session")
+async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
+    if not payload.parts:
+        raise HTTPException(400, "Se requiere al menos una parte")
+
+    session_id = uuid.uuid4().hex
+    expires_at = _utc_now() + timedelta(minutes=SESSION_TTL_MINUTES)
+    parts = []
+    total_size = 0
+
+    for idx, part in enumerate(payload.parts):
+        part_url = (part.url or "").strip()
+        if not part_url:
+            raise HTTPException(400, f"Parte #{idx+1} sin url")
+        part_pwd = part.password if part.password is not None else payload.password
+        resolved_part_url = _resolve_svx_input_url(part_url)
+
+        try:
+            cache_payload = await asyncio.get_event_loop().run_in_executor(
+                None, lambda p=resolved_part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
+            )
+        except ValueError as e:
+            raise HTTPException(400, f"Parte #{idx+1}: {e}")
+        except Exception as e:
+            raise HTTPException(500, f"No se pudo leer parte #{idx+1}: {e}")
+
+        entries = cache_payload.get("entries", [])
+        if not entries:
+            raise HTTPException(400, f"Parte #{idx+1} vacía")
+
+        chosen = entries[0]
+        if part.item:
+            found = next((e for e in entries if e.get("name") == part.item), None)
+            if not found:
+                raise HTTPException(404, f"Parte #{idx+1}: item no encontrado: {part.item}")
+            chosen = found
+
+        entry_name = chosen["name"]
+        entry_size = int(chosen["size"])
+        total_size += entry_size
+
+        parts.append({
+            "part_index": idx,
+            "label": part.label or f"Parte {idx+1}",
+            "url": part_url,
+            "resolved_url": resolved_part_url,
+            "password": part_pwd,
+            "entry": {
+                "name": entry_name,
+                "offset": int(chosen["offset"]),
+                "size": entry_size,
+                "ext": chosen.get("ext", "mp4"),
+            },
+            "crypto": {
+                "salt_b64": cache_payload["salt_b64"],
+                "iv_b64": cache_payload["iv_b64"],
+                "index_len": int(cache_payload["index_len"]),
+            },
+            "chunk_url": f"/api/svx/pro/playlist/session/{session_id}/part/{idx}/chunk/{quote(entry_name)}",
+            "fallback_stream_url": f"/api/svx/pro/playlist/session/{session_id}/part/{idx}/stream/{quote(entry_name)}",
+        })
+
+    manifest = {
+        "session_id": session_id,
+        "title": (payload.title or "").strip() or "Playlist SVX",
+        "mode": (payload.mode or "webcrypto").strip().lower(),
+        "expires_at": _iso_utc(expires_at),
+        "fallback_ready": True,
+        "kdf_iterations": int(_svx.KDF_ITERATIONS),
+        "parts": parts,
+        "total_size": total_size,
+    }
+
+    PRO_PLAYLIST_SESSIONS[session_id] = {
+        "manifest": manifest,
+        "expires_at": _iso_utc(expires_at),
+    }
+    return JSONResponse({
+        "session_id": session_id,
+        "title": manifest["title"],
+        "mode": manifest["mode"],
+        "expires_at": manifest["expires_at"],
+        "parts": len(parts),
+        "total_size": total_size,
+        "manifest_url": f"/api/svx/pro/playlist/session/{session_id}/manifest",
+    })
+
+
+@app.get("/api/svx/pro/playlist/session/{session_id}/manifest")
+async def svx_pro_playlist_session_manifest(session_id: str):
+    row = PRO_PLAYLIST_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+    exp = _parse_iso(row.get("expires_at"))
+    if exp and exp <= _utc_now():
+        PRO_PLAYLIST_SESSIONS.pop(session_id, None)
+        raise HTTPException(410, "Sesión Pro playlist expirada")
+    return JSONResponse(row["manifest"])
+
+
+@app.get("/api/svx/pro/playlist/session/{session_id}/part/{part_index}/chunk/{entry:path}")
+async def svx_pro_playlist_session_chunk(session_id: str, part_index: int, entry: str, start: int = 0, end: int | None = None):
+    row = PRO_PLAYLIST_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+    manifest = row["manifest"]
+    parts = manifest.get("parts", [])
+    if part_index < 0 or part_index >= len(parts):
+        raise HTTPException(404, "Parte no encontrada")
+    part = parts[part_index]
+    entry_obj = part["entry"]
+    if entry_obj["name"] != entry:
+        raise HTTPException(404, f"Entrada no encontrada: {entry}")
+
+    entry_size = int(entry_obj["size"])
+    if start < 0:
+        start = 0
+    if end is None:
+        end = min(entry_size - 1, start + PLAY_CHUNK_DEFAULT_SIZE - 1)
+    end = min(end, entry_size - 1)
+    if start > end:
+        raise HTTPException(416, "Rango invalido")
+
+    index_len = int(part["crypto"]["index_len"])
+    header_size = index_len + _svx.HEADER_BASE
+    file_start = header_size + int(entry_obj["offset"]) + start
+    file_end = header_size + int(entry_obj["offset"]) + end
+    data = _read_range_bytes(part.get("resolved_url") or part["url"], file_start, file_end)
+    if not data:
+        raise HTTPException(503, "Chunk vacio")
+
+    ks_offset = index_len + int(entry_obj["offset"]) + start
+    headers = {
+        "Content-Range": f"bytes {start}-{start + len(data) - 1}/{entry_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(len(data)),
+        "X-SVX-Keystream-Offset": str(ks_offset),
+        "X-SVX-Entry-Size": str(entry_size),
+    }
+    return Response(content=data, media_type="application/octet-stream", headers=headers, status_code=206)
+
+
+@app.get("/api/svx/pro/playlist/session/{session_id}/part/{part_index}/stream/{entry:path}")
+async def svx_pro_playlist_session_stream(session_id: str, part_index: int, entry: str, request: Request):
+    row = PRO_PLAYLIST_SESSIONS.get(session_id)
+    if not row:
+        raise HTTPException(404, "Sesión Pro playlist no encontrada")
+    manifest = row["manifest"]
+    parts = manifest.get("parts", [])
+    if part_index < 0 or part_index >= len(parts):
+        raise HTTPException(404, "Parte no encontrada")
+    part = parts[part_index]
+    if part["entry"]["name"] != entry:
+        raise HTTPException(404, f"Entrada no encontrada: {entry}")
+    return await svx_stream(
+        request=request,
+        path=part.get("resolved_url") or part["url"],
+        password=part["password"],
         item=entry,
     )
 
@@ -2492,13 +2687,13 @@ async def svx_playlist_session_create(payload: PlaylistSessionInput):
     entries = []
     cursor = 0
     for idx, part in enumerate(payload.parts):
-        part_path = (part.path or "").strip()
-        if not part_path:
-            raise HTTPException(400, f"Parte #{idx+1} sin path")
+        part_url = (part.url or "").strip()
+        if not part_url:
+            raise HTTPException(400, f"Parte #{idx+1} sin url")
         part_pwd = part.password if part.password is not None else payload.password
         try:
             cache_payload = await asyncio.get_event_loop().run_in_executor(
-                None, lambda p=part_path, pw=part_pwd: _load_or_build_index_cache(p, pw)
+                None, lambda p=part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
             )
         except ValueError as e:
             raise HTTPException(400, f"Parte #{idx+1}: {e}")
@@ -2518,11 +2713,11 @@ async def svx_playlist_session_create(payload: PlaylistSessionInput):
 
         size = int(chosen.get("size", 0))
         item_name = chosen.get("name") or f"part_{idx+1}"
-        stream_url = _playlist_stream_url(part_path, part_pwd, item_name)
+        stream_url = _playlist_stream_url(part_url, part_pwd, item_name)
         entries.append({
             "part_index": idx,
             "part_label": part.label or f"Parte {idx+1}",
-            "path": part_path,
+            "url": part_url,
             "item": item_name,
             "ext": chosen.get("ext", "mp4"),
             "size": size,

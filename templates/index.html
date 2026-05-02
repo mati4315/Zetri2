@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -61,7 +61,7 @@
     }
     .card-title { font-weight: 800; font-size: 1rem; margin-bottom: 10px; }
     label { display: block; font-size: .8rem; color: var(--muted); margin: 8px 0 6px; }
-    input {
+    input, textarea, select {
       width: 100%; border: 1px solid var(--border); border-radius: 10px;
       background: rgba(0,0,0,.26); color: var(--text);
       padding: 11px 12px;
@@ -202,6 +202,12 @@
       </div>
       <label>URL .SVX</label>
       <input type="text" id="playUrl" placeholder="https://www.mediafire.com/file/.../archivo.svx/file">
+      <label>Playlist JSON</label>
+      <textarea id="playlistJsonText" rows="8" placeholder="Pega aqui JSON con parts[].url"></textarea>
+      <div class="drop-area" id="playlistJsonDrop" style="margin-top:8px">
+        Arrastra un archivo .json aqui o hace clic para elegirlo
+      </div>
+      <input type="file" id="playlistJsonFile" accept=".json,application/json" style="display:none">
       <div class="tip">Playlist: pegá múltiples URLs .svx separadas por salto de línea para reproducción continua.</div>
       <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
       <div class="status-line" id="playStatusText">Listo.</div>
@@ -226,6 +232,8 @@
   // Crear SVX
   const dropArea = document.getElementById('dropArea');
   const fileInput = document.getElementById('fileInput');
+  const playlistJsonDrop = document.getElementById('playlistJsonDrop');
+  const playlistJsonFile = document.getElementById('playlistJsonFile');
   let selectedFiles = [];
 
   ['dragenter', 'dragover'].forEach(e => dropArea.addEventListener(e, ev => {
@@ -238,6 +246,25 @@
   }));
   dropArea.addEventListener('drop', ev => addFiles([...ev.dataTransfer.files]));
   fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+  if (playlistJsonDrop && playlistJsonFile) {
+    playlistJsonDrop.addEventListener('click', () => playlistJsonFile.click());
+    ['dragenter', 'dragover'].forEach(e => playlistJsonDrop.addEventListener(e, ev => {
+      ev.preventDefault();
+      playlistJsonDrop.classList.add('drag-over');
+    }));
+    ['dragleave', 'drop'].forEach(e => playlistJsonDrop.addEventListener(e, ev => {
+      ev.preventDefault();
+      playlistJsonDrop.classList.remove('drag-over');
+    }));
+    playlistJsonDrop.addEventListener('drop', ev => {
+      const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+      if (f) loadPlaylistJsonFile(f);
+    });
+    playlistJsonFile.addEventListener('change', () => {
+      const f = playlistJsonFile.files && playlistJsonFile.files[0];
+      if (f) loadPlaylistJsonFile(f);
+    });
+  }
 
   function fmtSize(b) {
     if (b > 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
@@ -489,12 +516,74 @@
       .filter(Boolean);
   }
 
-  async function startLegacyPlaylist(paths, password, signal) {
+  async function fetchJsonWithTimeout(url, options, timeoutMs, timeoutLabel) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), Math.max(1000, timeoutMs || 15000));
+    try {
+      const merged = { ...(options || {}), signal: ctl.signal };
+      const res = await fetch(url, merged);
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        throw new Error(timeoutLabel || 'Tiempo de espera agotado');
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  function parsePlaylistJsonText(raw) {
+    if (!raw || !raw.trim()) return null;
+    let obj = null;
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      throw new Error('JSON inválido');
+    }
+    if (!obj || typeof obj !== 'object') throw new Error('JSON inválido');
+    if (obj.version !== 1) throw new Error('Solo se soporta version=1');
+    if (!Array.isArray(obj.parts) || !obj.parts.length) throw new Error('El JSON debe incluir parts[]');
+    const parts = obj.parts.map((p, i) => {
+      const url = (p && (p.url || p.filename) ? String(p.url || p.filename).trim() : '');
+      if (!url) throw new Error(`parts[${i}] sin url`);
+      return {
+        order: Number(p.order || (i + 1)),
+        url,
+        label: p && p.label ? String(p.label) : `Parte ${i + 1}`,
+      };
+    });
+    parts.sort((a, b) => a.order - b.order);
+    return {
+      version: 1,
+      title: obj.title ? String(obj.title) : 'Playlist SVX',
+      created_at: obj.created_at ? String(obj.created_at) : '',
+      parts,
+    };
+  }
+
+  async function loadPlaylistJsonFile(file) {
+    if (!file) return;
+    const txt = await file.text();
+    const area = document.getElementById('playlistJsonText');
+    if (area) area.value = txt;
+    try {
+      const parsed = parsePlaylistJsonText(txt);
+      setPlayStatus(`Playlist JSON cargada: ${parsed.parts.length} partes.`, 0);
+      setPill('Playlist JSON', 'ok');
+    } catch (e) {
+      setPill('Error', 'warn');
+      setPlayStatus('JSON inválido: ' + e.message, 0);
+    }
+  }
+
+  async function startLegacyPlaylist(parts, password, signal) {
     const body = {
       title: 'Playlist SVX',
       mode: 'fallback',
       password: password || '',
-      parts: paths.map((p, i) => ({ path: p, label: `Parte ${i + 1}` })),
+      parts: (parts || []).map((p, i) => ({ url: p.url, label: p.label || `Parte ${i + 1}` })),
     };
     const res = await fetch('/api/svx/playlist/session', {
       method: 'POST',
@@ -751,12 +840,116 @@
     await logClient('pro_ok', 'WebCrypto playback completed', { entry: entry?.name });
   }
 
+  async function startProPlaylistSession(parts, password, signal) {
+    const body = {
+      title: 'Playlist SVX',
+      mode: 'webcrypto',
+      password: password || '',
+      parts: (parts || []).map((p, i) => ({ url: p.url, label: p.label || `Parte ${i + 1}` })),
+    };
+    const res = await fetch('/api/svx/pro/playlist/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'No se pudo crear sesión Pro playlist');
+    const mres = await fetch(data.manifest_url, { signal });
+    const manifest = await mres.json();
+    if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest Pro playlist');
+    return manifest;
+  }
+
+  async function playPlaylistWebCrypto(playlistManifest, password, signal) {
+    const parts = (playlistManifest && playlistManifest.parts) ? playlistManifest.parts : [];
+    if (!parts.length) throw new Error('Playlist Pro vacía');
+
+    const firstExt = ((parts[0].entry && parts[0].entry.ext) || 'mp4').toLowerCase();
+    let mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    if (firstExt === 'webm') mime = 'video/webm; codecs="vp8, vorbis"';
+    if (firstExt === 'mkv' || firstExt === 'avi' || firstExt === 'mov' || firstExt === 'ts') {
+      throw new Error(`Formato ${firstExt} no soportado por MSE Pro en playlist`);
+    }
+    if (!MediaSource.isTypeSupported(mime)) mime = firstExt === 'webm' ? 'video/webm' : 'video/mp4';
+    if (!MediaSource.isTypeSupported(mime)) throw new Error('Codec no soportado en modo Pro playlist');
+
+    const player = playerRef();
+    const ms = new MediaSource();
+    player.src = URL.createObjectURL(ms);
+    await new Promise((resolve, reject) => {
+      ms.addEventListener('sourceopen', resolve, { once: true });
+      ms.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true });
+    });
+
+    const sb = ms.addSourceBuffer(mime);
+    sb.mode = 'sequence';
+    const queue = [];
+    sb.addEventListener('updateend', () => appendQueue(sb, queue));
+
+    const prefetchBytes = chooseProPrefetchBytes();
+    await logClient('pro_playlist_prefetch_selected', `prefetch=${prefetchBytes}`, { prefetch_bytes: prefetchBytes, parts: parts.length });
+
+    let started = false;
+    for (let pidx = 0; pidx < parts.length; pidx++) {
+      const part = parts[pidx];
+      const entry = part.entry || {};
+      const entrySize = Number(entry.size || 0);
+      const key = await deriveCtrKey(password, part.crypto.salt_b64, playlistManifest.kdf_iterations || 20000);
+      let start = 0;
+
+      while (start < entrySize) {
+        if (signal?.aborted || loadAborted) throw new Error('Cancelado');
+        const chunkSize = started ? prefetchBytes : Math.min(prefetchBytes, 512 * 1024);
+        const end = Math.min(entrySize - 1, start + chunkSize - 1);
+        const res = await fetch(`${part.chunk_url}?start=${start}&end=${end}`, { signal: signal || undefined });
+        if (!res.ok) throw new Error(`Chunk error (${res.status}) en ${part.label || `Parte ${pidx + 1}`}`);
+
+        const ksOffset = Number(res.headers.get('X-SVX-Keystream-Offset') || 0);
+        const encrypted = new Uint8Array(await res.arrayBuffer());
+        const decrypted = await decryptCtrChunk(key, part.crypto.iv_b64, ksOffset, encrypted);
+        queue.push(decrypted.buffer);
+        appendQueue(sb, queue);
+
+        if (!started) {
+          started = true;
+          try { await player.play(); } catch {}
+        }
+
+        start = end + 1;
+        const pctPart = Math.floor((start / Math.max(1, entrySize)) * 100);
+        setPlayStatus(`Descifrando ${part.label || `Parte ${pidx + 1}`}... ${pctPart}%`, 65);
+      }
+    }
+
+    await new Promise(resolve => {
+      const done = () => {
+        if (!sb.updating && queue.length === 0) resolve();
+        else setTimeout(done, 40);
+      };
+      done();
+    });
+    try { ms.endOfStream(); } catch {}
+  }
+
   async function startTokenPlayback() {
     const url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value.trim();
-    if (!url) {
+    const jsonText = document.getElementById('playlistJsonText')?.value || '';
+    let playlistJson = null;
+    if (jsonText.trim()) {
+      try {
+        playlistJson = parsePlaylistJsonText(jsonText);
+      } catch (e) {
+        setPill('Error', 'warn');
+        setPlayStatus('JSON inválido: ' + e.message, 0);
+        return;
+      }
+    }
+
+    if (!playlistJson && !url) {
       setPill('Error', 'warn');
-      setPlayStatus('Ingresa una URL .svx.', 0);
+      setPlayStatus('Ingresa una URL .svx o pega un Playlist JSON.', 0);
       return;
     }
 
@@ -769,69 +962,102 @@
       setPill('Iniciando...', 'warn');
       setPlayStatus('Creando sesión segura...', 10);
 
-      const sres = await fetch(`/api/svx/pro/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: url, password: pwd, mode: 'webcrypto' }),
-        signal,
-      });
-      const session = await sres.json();
-      if (!sres.ok) {
-        await logClient('pro_session_error', session.detail || 'session create failed', { url });
-        throw new Error(session.detail || 'No se pudo crear sesión');
-      }
-      activeSessionId = session.session_id;
+      if (playlistJson && playlistJson.parts.length > 1) {
+        setPlayStatus('Creando playlist continua...', 20);
+        const listEntries = await startLegacyPlaylist(playlistJson.parts, pwd, signal);
+        renderEntries(listEntries, (entry) => {
+          playEntry(entry.stream_url);
+          setPill('Fallback', 'warn');
+        });
+        // Modo rápido para playlist: arranca inmediato por stream y encadena partes.
+        // Evita esperas largas de descifrado al 100% en playlists multi-parte.
+        await logClient('pro_playlist_fast_mode', 'Using immediate stream autoplay for playlist', { parts: listEntries.length });
+        if (!listEntries.length) throw new Error('Playlist vacía');
+        playEntry(listEntries[0].stream_url);
+        setupPlaylistAutoplay(listEntries, 0);
+        setPill('SVX Pro', 'ok');
+        setPlayStatus(`Reproduciendo playlist al vuelo (${listEntries.length} partes).`, 100);
+      } else {
+        const sourceUrl = playlistJson && playlistJson.parts.length ? playlistJson.parts[0].url : url;
+        const { res: sres, data: session } = await fetchJsonWithTimeout(
+          `/api/svx/pro/session`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: sourceUrl, password: pwd, mode: 'webcrypto' }),
+          },
+          15000,
+          'Timeout creando sesión Pro'
+        );
+        if (!sres.ok) {
+          await logClient('pro_session_error', session.detail || 'session create failed', { sourceUrl });
+          throw new Error(session.detail || 'No se pudo crear sesión');
+        }
+        activeSessionId = session.session_id;
 
-      setPlayStatus('Cargando manifest...', 25);
-      const mres = await fetch(`/api/svx/pro/session/${encodeURIComponent(activeSessionId)}/manifest`, { signal });
-      const manifest = await mres.json();
-      if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest');
-      activeManifest = manifest;
+        setPlayStatus('Cargando manifest...', 25);
+        const { res: mres, data: manifest } = await fetchJsonWithTimeout(
+          `/api/svx/pro/session/${encodeURIComponent(activeSessionId)}/manifest`,
+          {},
+          12000,
+          'Timeout cargando manifest Pro'
+        );
+        if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest');
+        activeManifest = manifest;
 
-      const entries = manifest.entries || [];
-      if (!entries.length) throw new Error('El token no contiene videos');
+        const entries = manifest.entries || [];
+        if (!entries.length) throw new Error('La fuente no contiene videos');
 
-      renderEntries(entries, async (entry) => {
-        abortPrevious();
-        playAbortController = new AbortController();
-        const { signal: s2 } = playAbortController;
-        if (supportsProCrypto()) {
-          try {
-            await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), s2);
-            setPill('SVX Pro', 'ok');
-            setPlayStatus(`Reproduciendo ${entry.name} (WebCrypto).`, 100);
-          } catch {
+        renderEntries(entries, async (entry) => {
+          abortPrevious();
+          playAbortController = new AbortController();
+          const { signal: s2 } = playAbortController;
+          if (supportsProCrypto()) {
+            try {
+              await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), s2);
+              setPill('SVX Pro', 'ok');
+              setPlayStatus(`Reproduciendo ${entry.name} (WebCrypto).`, 100);
+            } catch {
+              playEntry(entry.fallback_stream_url);
+              setPill('Fallback', 'warn');
+              setPlayStatus(`Fallback activado para ${entry.name}.`, 100);
+            }
+          } else {
             playEntry(entry.fallback_stream_url);
+          }
+        });
+
+        if (supportsProCrypto()) {
+          setPill('SVX Pro', 'ok');
+          setPlayStatus('WebCrypto activo. Arrancando video...', 45);
+          try {
+            await playEntryWebCrypto(entries[0], manifest, pwd, signal);
+          } catch (e) {
+            await logClient('pro_initial_fallback', String((e && e.message) || e || 'fallback'), { entry: entries[0]?.name });
+            playEntry(entries[0].fallback_stream_url);
             setPill('Fallback', 'warn');
-            setPlayStatus(`Fallback activado para ${entry.name}.`, 100);
+            setPlayStatus(`Fallback activado para ${entries[0].name}.`, 100);
           }
         } else {
-          playEntry(entry.fallback_stream_url);
-        }
-      });
-
-      if (supportsProCrypto()) {
-        setPill('SVX Pro', 'ok');
-        setPlayStatus('WebCrypto activo. Arrancando video...', 45);
-        try {
-          await playEntryWebCrypto(entries[0], manifest, pwd, signal);
-        } catch (e) {
-          await logClient('pro_initial_fallback', String((e && e.message) || e || 'fallback'), { entry: entries[0]?.name });
-          playEntry(entries[0].fallback_stream_url);
           setPill('Fallback', 'warn');
-          setPlayStatus(`Fallback activado para ${entries[0].name}.`, 100);
+          setPlayStatus('Navegador sin WebCrypto/MSE. Usando fallback...', 45);
+          playEntry(entries[0].fallback_stream_url);
         }
-      } else {
-        setPill('Fallback', 'warn');
-        setPlayStatus('Navegador sin WebCrypto/MSE. Usando fallback...', 45);
-        playEntry(entries[0].fallback_stream_url);
       }
 
       setPlayStatus('Reproducción iniciada.', 100);
     } catch (e) {
       if (!loadAborted) {
-        setPill('Error', 'warn');
-        setPlayStatus('Error: ' + e.message, 0);
+        const msg = String(e && e.message ? e.message : e || '');
+        if (msg.toLowerCase().includes('timeout')) {
+          await logClient('pro_timeout_fallback_legacy', msg, {});
+          setPill('Fallback', 'warn');
+          setPlayStatus('Pro tardó demasiado, activando modo al vuelo...', 35);
+          setTimeout(() => loadSvx(), 50);
+        } else {
+          setPill('Error', 'warn');
+          setPlayStatus('Error: ' + msg, 0);
+        }
       }
     } finally {
       document.getElementById('playCancelBtn').style.display = 'none';
@@ -841,9 +1067,20 @@
   async function loadSvx() {
     const url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value.trim();
-    if (!url) {
+    const jsonText = document.getElementById('playlistJsonText')?.value || '';
+    let playlistJson = null;
+    if (jsonText.trim()) {
+      try {
+        playlistJson = parsePlaylistJsonText(jsonText);
+      } catch (e) {
+        setPill('Error', 'warn');
+        setPlayStatus('JSON inválido: ' + e.message, 0);
+        return;
+      }
+    }
+    if (!playlistJson && !url) {
       setPill('Error', 'warn');
-      setPlayStatus('Ingresa URL para modo legacy.', 0);
+      setPlayStatus('Ingresa URL o Playlist JSON para modo legacy.', 0);
       return;
     }
 
@@ -857,12 +1094,12 @@
 
     let resolvedUrl = url;
     let entries = null;
-    const playlistUrls = parsePlaylistUrls(url);
+    const playlistParts = playlistJson ? playlistJson.parts : parsePlaylistUrls(url).map((u, i) => ({ url: u, label: `Parte ${i + 1}` }));
 
-    if (playlistUrls.length > 1) {
+    if (playlistParts.length > 1) {
       try {
         setPlayStatus('Creando playlist continua...', 35);
-        entries = await startLegacyPlaylist(playlistUrls, pwd, signal);
+        entries = await startLegacyPlaylist(playlistParts, pwd, signal);
       } catch (e) {
         if (!loadAborted) {
           setPill('Error', 'warn');
@@ -873,9 +1110,13 @@
       }
     }
 
-    if (!entries && url.includes('mediafire.com')) {
+    if (!entries && playlistJson && playlistJson.parts.length === 1) {
+      resolvedUrl = playlistJson.parts[0].url;
+    }
+
+    if (!entries && resolvedUrl.includes('mediafire.com')) {
       try {
-        const q = new URLSearchParams({ url, password: pwd });
+        const q = new URLSearchParams({ url: resolvedUrl, password: pwd });
         const res = await fetch('/api/extract?' + q.toString());
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Error al extraer URL');
@@ -883,7 +1124,7 @@
         if (data.stream_type === 'archive_list' && data.archive_files) {
           entries = data.archive_files.map(e => ({ name: e.name || e.filename, ext: e.ext, stream_url: e.stream_url }));
         } else {
-          resolvedUrl = data.url || url;
+          resolvedUrl = data.url || resolvedUrl;
         }
       } catch (e) {
         setPill('Error', 'warn');
@@ -932,3 +1173,7 @@
 </script>
 </body>
 </html>
+
+
+
+
