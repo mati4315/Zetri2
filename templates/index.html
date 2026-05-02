@@ -188,6 +188,14 @@
       <input type="text" id="playToken" placeholder="svx-7788abcd">
       <label>Contraseña</label>
       <input type="password" id="playPwd" placeholder="Contraseña del archivo .svx">
+      <label>Prefetch Pro</label>
+      <select id="proPrefetchMode">
+        <option value="auto" selected>Auto</option>
+        <option value="2">2 MB</option>
+        <option value="4">4 MB</option>
+        <option value="7">7 MB</option>
+        <option value="10">10 MB</option>
+      </select>
       <div class="row">
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="startTokenPlayback()">⚡ Iniciar Pro</button>
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="loadSvx()">🔍 Legacy</button>
@@ -615,6 +623,27 @@
     try { sb.appendBuffer(q.shift()); } catch {}
   }
 
+  function chooseProPrefetchBytes() {
+    const manual = document.getElementById('proPrefetchMode')?.value || 'auto';
+    if (manual !== 'auto') {
+      const mb = Number(manual);
+      if (mb > 0) return mb * 1024 * 1024;
+    }
+
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const downlink = Number(conn && conn.downlink ? conn.downlink : 0); // Mbps aprox
+    const rtt = Number(conn && conn.rtt ? conn.rtt : 0); // ms aprox
+
+    // Heurística simple:
+    // - red muy rápida/baja latencia: chunks grandes
+    // - red media: chunks intermedios
+    // - red lenta/alta latencia: chunks pequeños para reducir esperas largas
+    if (downlink >= 25 && (rtt === 0 || rtt <= 80)) return 10 * 1024 * 1024;
+    if (downlink >= 10 && (rtt === 0 || rtt <= 150)) return 7 * 1024 * 1024;
+    if (downlink >= 4) return 4 * 1024 * 1024;
+    return 2 * 1024 * 1024;
+  }
+
   async function playEntryWebCrypto(entry, manifest, password, signal) {
     await logClient('pro_start', 'Starting WebCrypto playback', { entry: entry?.name, ext: entry?.ext });
     const player = playerRef();
@@ -646,6 +675,10 @@
     let start = 0;
     let started = false;
     let playRejected = null;
+    const PRO_PREFETCH_BYTES = chooseProPrefetchBytes();
+    await logClient('pro_prefetch_selected', `prefetch=${PRO_PREFETCH_BYTES}`, {
+      prefetch_bytes: PRO_PREFETCH_BYTES
+    });
     let playbackStarted = false;
     const onPlaying = () => { playbackStarted = true; };
     player.addEventListener('playing', onPlaying, { once: true });
@@ -653,7 +686,7 @@
 
     while (start < entrySize) {
       if (signal?.aborted || loadAborted) throw new Error('Cancelado');
-      const chunkSize = started ? 1024 * 1024 : 128 * 1024;
+      const chunkSize = started ? PRO_PREFETCH_BYTES : Math.min(PRO_PREFETCH_BYTES, 512 * 1024);
       const end = Math.min(entrySize - 1, start + chunkSize - 1);
       const res = await fetch(`${entry.chunk_url}?start=${start}&end=${end}`, { signal: signal || undefined });
       if (!res.ok) {
