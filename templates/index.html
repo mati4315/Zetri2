@@ -196,7 +196,7 @@
       </select>
       <div class="row">
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="startTokenPlayback()">⚡ Iniciar Pro</button>
-        <button class="btn btn-primary" style="flex:1;margin:0" onclick="loadSvx()">🔍 Legacy</button>
+          <button class="btn btn-primary" style="flex:1;margin:0;opacity:.55;cursor:not-allowed" onclick="return false;" disabled title="Legacy deshabilitado temporalmente">🔍 Legacy (deshabilitado)</button>
         <button class="btn btn-primary" style="flex:1;margin:0; background:linear-gradient(90deg,#f97316,#ea580c)" onclick="copyVlcBridgeUrl()">📺 Puente VLC</button>
         <button class="btn btn-cancel" id="playCancelBtn" style="display:none;flex:0 0 auto;margin:0" onclick="cancelLoad()">■ Cancelar</button>
       </div>
@@ -212,7 +212,7 @@
       <div style="margin-top:12px"><span id="playPill" class="pill warn">Esperando</span></div>
       <div class="status-line" id="playStatusText">Listo.</div>
       <div class="bar"><div class="fill" id="playFill"></div></div>
-      <div class="tip">El modo Pro usa WebCrypto en tu navegador y cambia automáticamente a fallback si falla.</div>
+      <div class="tip">El modo Pro usa WebCrypto en tu navegador. Legacy está deshabilitado temporalmente.</div>
     </div>
 
     <div class="card">
@@ -422,6 +422,8 @@
   let activeSessionId = '';
   let activeManifest = null;
   let playlistAuto = { enabled: false, entries: [], index: 0 };
+  let proStartAttemptId = 0;
+  let proFallbackInProgress = false;
 
   function setPill(text, type) {
     const p = document.getElementById('playPill');
@@ -933,6 +935,8 @@
   }
 
   async function startTokenPlayback() {
+    const attemptId = ++proStartAttemptId;
+    proFallbackInProgress = false;
     const url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value.trim();
     const jsonText = document.getElementById('playlistJsonText')?.value || '';
@@ -986,7 +990,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: sourceUrl, password: pwd, mode: 'webcrypto' }),
           },
-          15000,
+          5000,
           'Timeout creando sesión Pro'
         );
         if (!sres.ok) {
@@ -999,7 +1003,7 @@
         const { res: mres, data: manifest } = await fetchJsonWithTimeout(
           `/api/svx/pro/session/${encodeURIComponent(activeSessionId)}/manifest`,
           {},
-          12000,
+          4000,
           'Timeout cargando manifest Pro'
         );
         if (!mres.ok) throw new Error(manifest.detail || 'No se pudo cargar manifest');
@@ -1050,10 +1054,12 @@
       if (!loadAborted) {
         const msg = String(e && e.message ? e.message : e || '');
         if (msg.toLowerCase().includes('timeout')) {
-          await logClient('pro_timeout_fallback_legacy', msg, {});
-          setPill('Fallback', 'warn');
-          setPlayStatus('Pro tardó demasiado, activando modo al vuelo...', 35);
-          setTimeout(() => loadSvx(), 50);
+          if (attemptId !== proStartAttemptId) return;
+          if (proFallbackInProgress) return;
+          proFallbackInProgress = true;
+          await logClient('pro_timeout_no_legacy', msg, {});
+          setPill('Error', 'warn');
+          setPlayStatus('Pro tardó demasiado y Legacy está deshabilitado temporalmente.', 0);
         } else {
           setPill('Error', 'warn');
           setPlayStatus('Error: ' + msg, 0);
@@ -1065,6 +1071,10 @@
   }
 
   async function loadSvx() {
+    setPill('Legacy deshabilitado', 'warn');
+    setPlayStatus('El modo Legacy está deshabilitado temporalmente.', 0);
+    return;
+
     const url = document.getElementById('playUrl').value.trim();
     const pwd = document.getElementById('playPwd').value.trim();
     const jsonText = document.getElementById('playlistJsonText')?.value || '';

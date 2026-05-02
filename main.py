@@ -722,6 +722,13 @@ def _resolve_svx_input_url(source_url: str) -> str:
     if "mediafire.com" not in u.lower():
         return u
     try:
+        host = (urlparse(u).hostname or "").lower()
+    except Exception:
+        host = ""
+    # Evita re-procesar enlaces directos (download*.mediafire.com) como si fueran páginas HTML.
+    if host.startswith("download") and host.endswith(".mediafire.com"):
+        return u
+    try:
         info = get_mediafire_info(u)
         direct = (info.get("download_url") or "").strip()
         if direct:
@@ -2401,16 +2408,16 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     password = payload.password or ""
     if not path:
         raise HTTPException(400, "Se requiere path")
-    resolved_path = _resolve_svx_input_url(path)
     try:
         cache_payload = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _load_or_build_index_cache(resolved_path, password)
+            None, lambda: _load_or_build_index_cache(path, password)
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"No se pudo construir el índice SVX: {e}")
 
+    resolved_path = _resolve_svx_input_url(path)
     session_id = uuid.uuid4().hex
     expires_at = _utc_now() + timedelta(minutes=SESSION_TTL_MINUTES)
     entries = []
@@ -2524,16 +2531,15 @@ async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
         if not part_url:
             raise HTTPException(400, f"Parte #{idx+1} sin url")
         part_pwd = part.password if part.password is not None else payload.password
-        resolved_part_url = _resolve_svx_input_url(part_url)
-
         try:
             cache_payload = await asyncio.get_event_loop().run_in_executor(
-                None, lambda p=resolved_part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
+                None, lambda p=part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
             )
         except ValueError as e:
             raise HTTPException(400, f"Parte #{idx+1}: {e}")
         except Exception as e:
             raise HTTPException(500, f"No se pudo leer parte #{idx+1}: {e}")
+        resolved_part_url = _resolve_svx_input_url(part_url)
 
         entries = cache_payload.get("entries", [])
         if not entries:
