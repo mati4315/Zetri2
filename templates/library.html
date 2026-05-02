@@ -152,7 +152,11 @@
         const res = await fetch(`/api/library/items/${id}/start`, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'No se pudo reproducir');
-        localStorage.setItem('svx_library_autoplay', JSON.stringify(data));
+        localStorage.setItem('svx_library_autoplay', JSON.stringify({
+          id: data.id,
+          title: data.title,
+          start_token: data.start_token
+        }));
         window.location.href = '/';
       } catch (e) {
         alert('No se pudo reproducir: ' + (e.message || e));
@@ -188,4 +192,3 @@
   </script>
 </body>
 </html>
-

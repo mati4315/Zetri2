@@ -441,6 +441,7 @@
     timelineHandler: null,
     endHandler: null,
   };
+  let libraryResolvedSource = null;
   const PLAYLIST_TRANSITION_EARLY_SEC = 1.2;
   let proStartAttemptId = 0;
   let proFallbackInProgress = false;
@@ -762,7 +763,7 @@
       try { playlistJson = parsePlaylistJsonText(jsonText); } catch (_) {}
     }
     
-    if (!playlistJson && !url) {
+    if (!playlistJson && !url && !libraryResolvedSource) {
       alert('Ingresa una URL para generar el Puente.');
       return;
     }
@@ -781,6 +782,25 @@
     }
 
     try {
+      if (libraryResolvedSource && (libraryResolvedSource.mode === 'single' || libraryResolvedSource.mode === 'playlist')) {
+        const bres = await fetch('/api/library/bridge/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: libraryResolvedSource.mode,
+            url: libraryResolvedSource.mode === 'single' ? (libraryResolvedSource.url || '') : null,
+            playlist_json: libraryResolvedSource.mode === 'playlist' ? (libraryResolvedSource.playlist_json || {}) : null,
+            password: libraryResolvedSource.password || '',
+          }),
+        });
+        const bdata = await bres.json();
+        if (!bres.ok || !bdata.bridge_url) throw new Error(bdata.detail || 'No se pudo crear Bridge seguro');
+        await navigator.clipboard.writeText(bdata.bridge_url);
+        setPlayStatus('¡Bridge seguro copiado para VLC!', 100);
+        setTimeout(() => setPlayStatus('Listo.', 0), 2000);
+        return;
+      }
+
       if (playlistJson && playlistJson.parts && playlistJson.parts.length > 1) {
         const body = {
           title: playlistJson.title || 'Playlist SVX',
@@ -1107,12 +1127,18 @@
     try { ms.endOfStream(); } catch {}
   }
 
-  async function startTokenPlayback() {
+  async function startTokenPlayback(sourceOverride = null) {
     const attemptId = ++proStartAttemptId;
     proFallbackInProgress = false;
-    const url = document.getElementById('playUrl').value.trim();
-    const pwd = document.getElementById('playPwd').value.trim();
-    const jsonText = document.getElementById('playlistJsonText')?.value || '';
+    const url = sourceOverride && sourceOverride.mode === 'single'
+      ? String(sourceOverride.url || '').trim()
+      : document.getElementById('playUrl').value.trim();
+    const pwd = sourceOverride
+      ? String(sourceOverride.password || '').trim()
+      : document.getElementById('playPwd').value.trim();
+    const jsonText = sourceOverride && sourceOverride.mode === 'playlist'
+      ? JSON.stringify(sourceOverride.playlist_json || {})
+      : (document.getElementById('playlistJsonText')?.value || '');
     let playlistJson = null;
     if (jsonText.trim()) {
       try {
@@ -1218,7 +1244,7 @@
           const { signal: s2 } = playAbortController;
           if (supportsProCrypto()) {
             try {
-              await playEntryWebCrypto(entry, activeManifest, document.getElementById('playPwd').value.trim(), s2);
+              await playEntryWebCrypto(entry, activeManifest, pwd, s2);
               setPill('SVX Pro', 'ok');
               setPlayStatus(`Reproduciendo ${entry.name} (WebCrypto).`, 100);
             } catch {
@@ -1391,21 +1417,22 @@
       const payload = JSON.parse(raw);
       if (!payload || typeof payload !== 'object') return;
       switchTab('play');
-      const pwd = String(payload.password || '');
-      const mode = String(payload.mode || '');
-      document.getElementById('playPwd').value = pwd;
-      if (mode === 'single') {
-        document.getElementById('playUrl').value = String(payload.url || '');
-        document.getElementById('playlistJsonText').value = '';
-      } else if (mode === 'playlist') {
-        document.getElementById('playUrl').value = '';
-        document.getElementById('playlistJsonText').value = JSON.stringify(payload.playlist_json || {}, null, 2);
-      } else {
+      const startToken = String(payload.start_token || '');
+      if (!startToken) return;
+      const r = await fetch(`/api/library/start/${encodeURIComponent(startToken)}`, { method: 'POST' });
+      const resolved = await r.json();
+      if (!r.ok) throw new Error(resolved.detail || 'No se pudo resolver inicio de Biblioteca');
+      const mode = String(resolved.mode || '');
+      if (mode !== 'single' && mode !== 'playlist') {
         return;
       }
+      libraryResolvedSource = resolved;
+      document.getElementById('playPwd').value = '';
+      document.getElementById('playUrl').value = '';
+      document.getElementById('playlistJsonText').value = '';
       setPill('Biblioteca', 'ok');
-      setPlayStatus('Cargando desde Biblioteca...', 15);
-      setTimeout(() => { startTokenPlayback(); }, 120);
+      setPlayStatus('Cargando desde Biblioteca (modo privado)...', 15);
+      setTimeout(() => { startTokenPlayback(libraryResolvedSource); }, 120);
     } catch (e) {
       setPill('Error', 'warn');
       setPlayStatus('No se pudo cargar autoplay de Biblioteca.', 0);
@@ -1415,6 +1442,13 @@
   }
 
   window.addEventListener('DOMContentLoaded', () => {
+    const playUrl = document.getElementById('playUrl');
+    const playPwd = document.getElementById('playPwd');
+    const playlistText = document.getElementById('playlistJsonText');
+    const clearPrivate = () => { libraryResolvedSource = null; };
+    if (playUrl) playUrl.addEventListener('input', clearPrivate);
+    if (playPwd) playPwd.addEventListener('input', clearPrivate);
+    if (playlistText) playlistText.addEventListener('input', clearPrivate);
     applyLibraryAutoplayFromStorage();
   });
 </script>
