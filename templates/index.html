@@ -196,6 +196,8 @@
       </select>
       <div class="row">
         <button class="btn btn-primary" style="flex:1;margin:0" onclick="startTokenPlayback()">⚡ Iniciar Pro</button>
+          <!-- IMPORTANT: Legacy deshabilitado por decisión de infraestructura.
+               No reactivar sin validar soporte del servidor para ese flujo. -->
           <button class="btn btn-primary" style="flex:1;margin:0;opacity:.55;cursor:not-allowed" onclick="return false;" disabled title="Legacy deshabilitado temporalmente">🔍 Legacy (deshabilitado)</button>
         <button class="btn btn-primary" style="flex:1;margin:0; background:linear-gradient(90deg,#f97316,#ea580c)" onclick="copyVlcBridgeUrl()">📺 Puente VLC</button>
         <button class="btn btn-cancel" id="playCancelBtn" style="display:none;flex:0 0 auto;margin:0" onclick="cancelLoad()">■ Cancelar</button>
@@ -1071,6 +1073,8 @@
   }
 
   async function loadSvx() {
+    // IMPORTANT: Legacy deshabilitado temporalmente.
+    // Mantener este bloqueo evita que clientes entren por un flujo no soportado en servidor.
     setPill('Legacy deshabilitado', 'warn');
     setPlayStatus('El modo Legacy está deshabilitado temporalmente.', 0);
     return;

@@ -725,7 +725,8 @@ def _resolve_svx_input_url(source_url: str) -> str:
         host = (urlparse(u).hostname or "").lower()
     except Exception:
         host = ""
-    # Evita re-procesar enlaces directos (download*.mediafire.com) como si fueran páginas HTML.
+    # IMPORTANT: no re-procesar enlaces directos (download*.mediafire.com) como páginas HTML.
+    # Hacerlo puede colgar el modo Pro al intentar parsear contenido binario pesado.
     if host.startswith("download") and host.endswith(".mediafire.com"):
         return u
     try:
@@ -2408,6 +2409,9 @@ async def svx_pro_session_create(payload: SvxProSessionInput):
     password = payload.password or ""
     if not path:
         raise HTTPException(400, "Se requiere path")
+    # IMPORTANT: construir índice con la URL original.
+    # _load_or_build_index_cache ya resuelve internamente y cachea de forma estable.
+    # Si pasamos una URL ya resuelta aquí, se puede re-resolver y volver inestable el arranque Pro.
     try:
         cache_payload = await asyncio.get_event_loop().run_in_executor(
             None, lambda: _load_or_build_index_cache(path, password)
@@ -2531,6 +2535,8 @@ async def svx_pro_playlist_session_create(payload: PlaylistSessionInput):
         if not part_url:
             raise HTTPException(400, f"Parte #{idx+1} sin url")
         part_pwd = part.password if part.password is not None else payload.password
+        # IMPORTANT: mismo criterio que sesión Pro simple:
+        # indexar con URL original y resolver URL directa recién después para stream/chunks.
         try:
             cache_payload = await asyncio.get_event_loop().run_in_executor(
                 None, lambda p=part_url, pw=part_pwd: _load_or_build_index_cache(p, pw)
